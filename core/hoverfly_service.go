@@ -287,17 +287,17 @@ func (hf Hoverfly) GetFilteredSimulation(urlPattern string) (v2.SimulationViewV6
 		hf.version), nil
 }
 
-func (this *Hoverfly) putOrReplaceSimulation(simulationView v2.SimulationViewV6, overrideExisting bool) v2.SimulationImportResult {
-	bodyFilesResult := this.readResponseBodyFiles(simulationView.RequestResponsePairs)
+func (hf *Hoverfly) putOrReplaceSimulation(simulationView v2.SimulationViewV6, overrideExisting bool) v2.SimulationImportResult {
+	bodyFilesResult := hf.readResponseBodyFiles(simulationView.RequestResponsePairs)
 	if bodyFilesResult.GetError() != nil {
 		return bodyFilesResult
 	}
 
 	if overrideExisting {
-		this.DeleteSimulation()
+		hf.DeleteSimulation()
 	}
 
-	result := this.importRequestResponsePairViews(simulationView.DataViewV6.RequestResponsePairs)
+	result := hf.importRequestResponsePairViews(simulationView.DataViewV6.RequestResponsePairs)
 	if result.GetError() != nil {
 		return result
 	}
@@ -320,19 +320,19 @@ func (this *Hoverfly) putOrReplaceSimulation(simulationView v2.SimulationViewV6,
 }
 
 
-func (this *Hoverfly) ReplaceSimulation(simulationView v2.SimulationViewV6) v2.SimulationImportResult {
-	return this.putOrReplaceSimulation(simulationView, true)
+func (hf *Hoverfly) ReplaceSimulation(simulationView v2.SimulationViewV6) v2.SimulationImportResult {
+	return hf.putOrReplaceSimulation(simulationView, true)
 }
 
-func (this *Hoverfly) PutSimulation(simulationView v2.SimulationViewV6) v2.SimulationImportResult {
-	return this.putOrReplaceSimulation(simulationView, false)
+func (hf *Hoverfly) PutSimulation(simulationView v2.SimulationViewV6) v2.SimulationImportResult {
+	return hf.putOrReplaceSimulation(simulationView, false)
 }
 
-func (this *Hoverfly) DeleteSimulation() {
-	this.Simulation.DeleteMatchingPairs()
-	this.DeleteResponseDelays()
-	this.DeleteResponseDelaysLogNormal()
-	this.FlushCache()
+func (hf *Hoverfly) DeleteSimulation() {
+	hf.Simulation.DeleteMatchingPairs()
+	hf.DeleteResponseDelays()
+	hf.DeleteResponseDelaysLogNormal()
+	hf.FlushCache()
 }
 
 func (hf *Hoverfly) GetVersion() string {
