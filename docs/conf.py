@@ -1,9 +1,27 @@
-import sys
-import os
-import shlex
+import sphinx_rtd_theme
+
+# Configuration file for the Sphinx documentation builder.
+#
+# For the full list of built-in configuration values, see the documentation:
+  # https://www.sphinx-doc.org/en/master/usage/configuration.html
+
+# -- Project information -----------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+
+project = 'Hoverfly'
+copyright = '2025 Hoverfly Cloud'
+author = 'Hoverfly Cloud'
+
+version = 'v1.10.9'
+# The full version, including alpha/beta/rc tags.
+release = version
+
+# -- General configuration ---------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
     'sphinxcontrib.mermaid',
+    'sphinxcontrib.jquery',
     'sphinx.ext.extlinks',
     'sphinx.ext.todo'
 ]
@@ -13,64 +31,37 @@ templates_path = ['_templates']
 source_suffix = '.rst'
 
 master_doc = 'index'
-
-project = u'Hoverfly'
-copyright = u'2017, SpectoLabs'
-author = u'SpectoLabs'
-
-
-version = 'v1.3.3'
-# The full version, including alpha/beta/rc tags.
-release = version
-
 zip_base_url = 'https://github.com/SpectoLabs/hoverfly/releases/download/' + version + '/'
 
 extlinks = {'zip_bundle_os_arch': (zip_base_url + 'hoverfly_bundle_%s.zip', 'zip_bundle_os_arch')}
 
-language = None
-
-exclude_patterns = ['_build']
-
-
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 pygments_style = 'sphinx'
+
+# -- Options for HTML output -------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 todo_include_todos = False
 
-if 'READTHEDOCS' not in os.environ:
-    import sphinx_rtd_theme
-    html_theme = 'sphinx_rtd_theme'
-    html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
+html_theme = 'sphinx_rtd_theme'
+html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
 html_static_path = ['_static']
 
 html_context = {
-   'css_files': [                                                           
-            'https://media.readthedocs.org/css/sphinx_rtd_theme.css',            
-            'https://media.readthedocs.org/css/readthedocs-doc-embed.css',       
-            '_static/theme_overrides.css',   
+   'css_files': [
+            'https://media.readthedocs.org/css/sphinx_rtd_theme.css',
+            'https://media.readthedocs.org/css/readthedocs-doc-embed.css',
+            '_static/theme_overrides.css',
         ],
     }
 
 
 htmlhelp_basename = 'hoverflydoc'
 
-latex_elements = {
-    # The paper size ('letterpaper' or 'a4paper').
-    #'papersize': 'letterpaper',
-
-    # The font size ('10pt', '11pt' or '12pt').
-    #'pointsize': '10pt',
-
-    # Additional stuff for the LaTeX preamble.
-    #'preamble': '',
-
-    # Latex figure (float) alignment
-    #'figure_align': 'htbp',
-}
-
 latex_documents = [
     (master_doc, 'hoverfly.tex', u'Hoverfly Documentation',
-     u'SpectoLabs', 'manual'),
+     u'Hoverfly Cloud', 'manual'),
 ]
 
 man_pages = [

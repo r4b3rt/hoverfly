@@ -7,8 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v1"
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	"github.com/SpectoLabs/hoverfly/core/action"
+	v1 "github.com/SpectoLabs/hoverfly/core/handlers/v1"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/matching/matchers"
 	"github.com/SpectoLabs/hoverfly/core/models"
 	"github.com/SpectoLabs/hoverfly/core/modes"
@@ -126,7 +127,7 @@ func Test_Hoverfly_GetSimulation_ReturnsBlankSimulation_ifThereIsNoData(t *testi
 	Expect(simulation.RequestResponsePairs).To(HaveLen(0))
 	Expect(simulation.GlobalActions.Delays).To(HaveLen(0))
 
-	Expect(simulation.MetaView.SchemaVersion).To(Equal("v5.1"))
+	Expect(simulation.MetaView.SchemaVersion).To(Equal("v5.3"))
 	Expect(simulation.MetaView.HoverflyVersion).To(MatchRegexp(`v\d+.\d+.\d+(-rc.\d)*`))
 	Expect(simulation.MetaView.TimeExported).ToNot(BeNil())
 }
@@ -161,7 +162,6 @@ func Test_Hoverfly_GetSimulation_ReturnsASingleRequestResponsePair(t *testing.T)
 	Expect(simulation.RequestResponsePairs[0].RequestMatcher.Destination[0].Value).To(Equal("test.com"))
 	Expect(simulation.RequestResponsePairs[0].RequestMatcher.Path).To(BeNil())
 	Expect(simulation.RequestResponsePairs[0].RequestMatcher.Method).To(BeNil())
-	Expect(simulation.RequestResponsePairs[0].RequestMatcher.DeprecatedQuery).To(BeNil())
 	Expect(simulation.RequestResponsePairs[0].RequestMatcher.Scheme).To(BeNil())
 	Expect(simulation.RequestResponsePairs[0].RequestMatcher.Headers).To(HaveLen(0))
 
@@ -423,7 +423,7 @@ func Test_Hoverfly_GetFilteredSimulation_ReturnBlankSimulation_IfThereIsNoMatch(
 	Expect(simulation.GlobalActions.Delays).To(HaveLen(0))
 	Expect(simulation.GlobalActions.DelaysLogNormal).To(HaveLen(0))
 
-	Expect(simulation.MetaView.SchemaVersion).To(Equal("v5.1"))
+	Expect(simulation.MetaView.SchemaVersion).To(Equal("v5.3"))
 	Expect(simulation.MetaView.HoverflyVersion).To(MatchRegexp(`v\d+.\d+.\d+(-rc.\d)*`))
 	Expect(simulation.MetaView.TimeExported).ToNot(BeNil())
 }
@@ -1162,7 +1162,6 @@ func Test_Hoverfly_PutSimulation_NotOverridesSimulation(t *testing.T) {
 	Expect(simulation.RequestResponsePairs[1].Response.Body).To(Equal(pairTwo.Response.Body))
 }
 
-
 func Test_Hoverfly_PutSimulation_BodyAndBodyFileWarning(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -1176,7 +1175,7 @@ func Test_Hoverfly_PutSimulation_BodyAndBodyFileWarning(t *testing.T) {
 					},
 				},
 				Response: v2.ResponseDetailsViewV5{
-					Body: "test-body",
+					Body:     "test-body",
 					BodyFile: "test-file",
 				},
 			}},
@@ -1259,7 +1258,7 @@ func Test_Hoverfly_PutSimulation_ImportsBodyFileFromURL(t *testing.T) {
 					},
 				},
 				Response: v2.ResponseDetailsViewV5{
-					BodyFile: server.URL+"/key.pem",
+					BodyFile: server.URL + "/key.pem",
 				},
 			}},
 		},
@@ -1271,7 +1270,7 @@ func Test_Hoverfly_PutSimulation_ImportsBodyFileFromURL(t *testing.T) {
 	Expect(err).To(BeNil())
 
 	Expect(simulation.RequestResponsePairs[0].Response.Body).To(HavePrefix("-----BEGIN RSA PRIVATE KEY-----"))
-	Expect(simulation.RequestResponsePairs[0].Response.BodyFile).To(Equal(server.URL+"/key.pem"))
+	Expect(simulation.RequestResponsePairs[0].Response.BodyFile).To(Equal(server.URL + "/key.pem"))
 }
 
 func Test_Hoverfly_PutSimulation_ImportsBodyFileFromURL_NoOrigins(t *testing.T) {
@@ -1294,7 +1293,7 @@ func Test_Hoverfly_PutSimulation_ImportsBodyFileFromURL_NoOrigins(t *testing.T) 
 					},
 				},
 				Response: v2.ResponseDetailsViewV5{
-					BodyFile: server.URL+"/key.pem",
+					BodyFile: server.URL + "/key.pem",
 				},
 			}},
 		},
@@ -1324,7 +1323,7 @@ func Test_Hoverfly_PutSimulation_ImportsBodyFileFromURL_NoMatchingOrigins(t *tes
 					},
 				},
 				Response: v2.ResponseDetailsViewV5{
-					BodyFile: server.URL+"/key.pem",
+					BodyFile: server.URL + "/key.pem",
 				},
 			}},
 		},
@@ -1332,4 +1331,288 @@ func Test_Hoverfly_PutSimulation_ImportsBodyFileFromURL_NoMatchingOrigins(t *tes
 
 	Expect(importResult.GetError()).NotTo(BeNil())
 	Expect(importResult.GetError().Error()).To(MatchRegexp(`bodyFile http:\/\/.+/key.pem is not allowed`))
+}
+
+func TestHoverfly_GetFilteredDiff(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	key := v2.SimpleRequestDefinitionView{
+		Host: "test.com",
+	}
+	unit.AddDiff(key, v2.DiffReport{Timestamp: "now", DiffEntries: []v2.DiffReportEntry{{Field: "header/test1", Actual: "1"}}})
+	unit.AddDiff(key, v2.DiffReport{Timestamp: "now", DiffEntries: []v2.DiffReportEntry{{Field: "body/test1", Actual: "2"}}})
+	unit.AddDiff(key, v2.DiffReport{Timestamp: "now", DiffEntries: []v2.DiffReportEntry{{Field: "body/test2", Actual: "3"}}})
+
+	filteredResponses := unit.GetFilteredDiff(v2.DiffFilterView{ExcludedResponseFields: []string{"$.test1"}})
+
+	Expect(filteredResponses).To(HaveLen(1))
+	Expect(filteredResponses[key]).To(HaveLen(2))
+	Expect(filteredResponses[key][0].DiffEntries[0].Field).Should(Equal("header/test1"))
+	Expect(filteredResponses[key][1].DiffEntries[0].Field).Should(Equal("body/test2"))
+}
+
+func TestHoverfly_GetPostServeActions(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+	localActionDetails := action.Action{Binary: "python3", DelayInMs: 1900}
+	remoteActionDetails := action.Action{Remote: "http://localhost", DelayInMs: 1800}
+	actionMap := map[string]action.Action{
+		"test-local-callback":  localActionDetails,
+		"test-remote-callback": remoteActionDetails,
+	}
+
+	unit.PostServeActionDetails.Actions = actionMap
+	postServeActions := unit.GetAllPostServeActions()
+
+	Expect(postServeActions).NotTo(BeNil())
+	Expect(postServeActions.Actions).To(HaveLen(2))
+	Expect(postServeActions.Actions[0].ActionName).To(Equal("test-local-callback"))
+	Expect(postServeActions.Actions[0].Binary).To(Equal("python3"))
+	Expect(postServeActions.Actions[0].DelayInMs).To(Equal(1900))
+	Expect(postServeActions.Actions[1].ActionName).To(Equal("test-remote-callback"))
+	Expect(postServeActions.Actions[1].Remote).To(Equal("http://localhost"))
+	Expect(postServeActions.Actions[1].DelayInMs).To(Equal(1800))
+}
+
+func TestHoverfly_GetPostServeActions_WithFallback(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+	localActionDetails := action.Action{Binary: "python3", DelayInMs: 1900}
+	remoteActionDetails := action.Action{Remote: "http://localhost", DelayInMs: 1800}
+	fallbackActionDetails := action.Action{Remote: "http://localhost:8081", DelayInMs: 1800}
+	actionMap := map[string]action.Action{
+		"test-local-callback":  localActionDetails,
+		"test-remote-callback": remoteActionDetails,
+	}
+
+	unit.PostServeActionDetails.Actions = actionMap
+	unit.PostServeActionDetails.FallbackAction = &fallbackActionDetails
+	postServeActions := unit.GetAllPostServeActions()
+
+	Expect(postServeActions).NotTo(BeNil())
+	Expect(postServeActions.Actions).To(HaveLen(3))
+	Expect(postServeActions.Actions[0].ActionName).To(Equal("test-local-callback"))
+	Expect(postServeActions.Actions[0].Binary).To(Equal("python3"))
+	Expect(postServeActions.Actions[0].DelayInMs).To(Equal(1900))
+	Expect(postServeActions.Actions[1].ActionName).To(Equal("test-remote-callback"))
+	Expect(postServeActions.Actions[1].Remote).To(Equal("http://localhost"))
+	Expect(postServeActions.Actions[1].DelayInMs).To(Equal(1800))
+	Expect(postServeActions.Actions[2]).NotTo(BeNil())
+	Expect(postServeActions.Actions[2].Remote).To(Equal("http://localhost:8081"))
+	Expect(postServeActions.Actions[2].DelayInMs).To(Equal(1800))
+}
+
+func TestHoverfly_SetLocalPostServeAction(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetLocalPostServeAction("test-callback", "script", "dummy script", 1800)
+
+	Expect(err).To(BeNil())
+	Expect(unit.PostServeActionDetails.Actions).NotTo(BeNil())
+	Expect(unit.PostServeActionDetails.Actions).To(HaveLen(1))
+	Expect(unit.PostServeActionDetails.Actions["test-callback"].Binary).To(Equal("script"))
+	Expect(unit.PostServeActionDetails.Actions["test-callback"].DelayInMs).To(Equal(1800))
+}
+
+func TestHoverfly_SetRemotePostServeAction(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetRemotePostServeAction("test-callback", "http://localhost:8080", 1800)
+
+	Expect(err).To(BeNil())
+	Expect(unit.PostServeActionDetails.Actions).NotTo(BeNil())
+	Expect(unit.PostServeActionDetails.Actions).To(HaveLen(1))
+	Expect(unit.PostServeActionDetails.Actions["test-callback"].Remote).To(Equal("http://localhost:8080"))
+	Expect(unit.PostServeActionDetails.Actions["test-callback"].DelayInMs).To(Equal(1800))
+}
+
+func TestHoverfly_SetFallbackLocalPostServeAction(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetLocalPostServeAction("", "script", "dummy script", 1800)
+
+	Expect(err).To(BeNil())
+	Expect(unit.PostServeActionDetails.FallbackAction).NotTo(BeNil())
+	Expect(unit.PostServeActionDetails.FallbackAction.Binary).To(Equal("script"))
+	Expect(unit.PostServeActionDetails.FallbackAction.DelayInMs).To(Equal(1800))
+
+}
+
+func TestHoverfly_SetFallbackRemotePostServeAction(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetRemotePostServeAction("", "http://localhost:8080", 1800)
+
+	Expect(err).To(BeNil())
+	Expect(unit.PostServeActionDetails.FallbackAction).NotTo(BeNil())
+	Expect(unit.PostServeActionDetails.FallbackAction.Remote).To(Equal("http://localhost:8080"))
+	Expect(unit.PostServeActionDetails.FallbackAction.DelayInMs).To(Equal(1800))
+}
+
+func TestHoverfly_DeleteLocalPostServeAction(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetLocalPostServeAction("test-callback", "script", "dummy script", 1800)
+
+	Expect(err).To(BeNil())
+
+	err = unit.DeletePostServeAction("test-callback")
+
+	Expect(err).To(BeNil())
+	Expect(unit.PostServeActionDetails.Actions).To(HaveLen(0))
+}
+
+func TestHoverfly_DeleteRemotePostServeAction(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetRemotePostServeAction("test-callback", "http://localhost", 1800)
+
+	Expect(err).To(BeNil())
+
+	err = unit.DeletePostServeAction("test-callback")
+
+	Expect(err).To(BeNil())
+	Expect(unit.PostServeActionDetails.Actions).To(HaveLen(0))
+}
+
+func TestHoverfly_DeletePostServeAction_ReturnsErrorIfActionDoesNotExist(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.DeletePostServeAction("test-callback")
+
+	Expect(err).NotTo(BeNil())
+	Expect(err.Error()).To(Equal("invalid action name passed"))
+}
+
+func TestHoverfly_SetMultipleTemplateDataSource(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err1 := unit.SetCsvDataSource("test-csv1", "id,name,marks\n1,Test1,55\n2,Test2,56")
+	err2 := unit.SetCsvDataSource("test-csv2", "id,name,city\n21,Test3,London\n22,Test4,New York\n31,Test4,Delhi")
+	Expect(err1).To(BeNil())
+	Expect(err2).To(BeNil())
+
+	Expect(unit.templator.TemplateHelper.TemplateDataSource.GetAllDataSources()).ToNot(BeNil())
+
+	csv1, exists1:= unit.templator.TemplateHelper.TemplateDataSource.GetDataSource("test-csv1")
+	Expect(csv1).NotTo(BeNil())
+	Expect(exists1).To(BeTrue())
+
+	csv2, exists2:= unit.templator.TemplateHelper.TemplateDataSource.GetDataSource("test-csv2")
+	Expect(csv2).NotTo(BeNil())
+	Expect(exists2).To(BeTrue())
+
+	Expect(csv1.Name).To(Equal("test-csv1"))
+	Expect(csv2.Name).To(Equal("test-csv2"))
+
+	Expect(csv1.SourceType).To(Equal("csv"))
+	Expect(csv2.SourceType).To(Equal("csv"))
+
+	Expect(csv1.Data).To(HaveLen(3))
+	Expect(csv2.Data).To(HaveLen(4))
+
+	Expect(csv1.Data[1][2]).To(Equal("55"))
+	Expect(csv2.Data[2][2]).To(Equal("New York"))
+
+	Expect(csv1.Data[2][1]).To(Equal("Test2"))
+	Expect(csv2.Data[3][0]).To(Equal("31"))
+}
+
+func TestHoverfly_DeleteTemplateDataSource(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+
+	err := unit.SetCsvDataSource("test-csv1", "id,name,marks\n1,Test1,55\n2,Test2,56\n")
+
+	Expect(err).To(BeNil())
+
+	unit.DeleteDataSource("test-csv1")
+
+	Expect(err).To(BeNil())
+	Expect(unit.templator.TemplateHelper.TemplateDataSource.GetAllDataSources()).To(HaveLen(0))
+}
+
+func TestHoverfly_GetTemplateDataSources(t *testing.T) {
+
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+	content := "id,name,marks\n1,Test1,55\n2,Test2,56\n"
+	err := unit.SetCsvDataSource("test-csv1", content)
+	Expect(err).To(BeNil())
+
+	templateDataSourceView := unit.GetAllDataSources()
+
+	Expect(templateDataSourceView).NotTo(BeNil())
+	Expect(templateDataSourceView.DataSources).To(HaveLen(1))
+	Expect(templateDataSourceView.DataSources[0].Name).To(Equal("test-csv1"))
+	Expect(templateDataSourceView.DataSources[0].Data).To(Equal(content))
+}
+
+func TestHoverfly_AddAndGetJournalIndex(t *testing.T) {
+	RegisterTestingT(t)
+
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+	indexName1 := "Request.QueryParam.id"
+	indexName2 := "Request.Body 'jsonpath' '$.id'"
+	addIndexes(unit, indexName1, indexName2)
+	journalIndexes := unit.Journal.GetAllIndexes()
+	Expect(journalIndexes).ToNot(BeNil())
+	Expect(journalIndexes).To(HaveLen(2))
+	Expect(journalIndexes[0].Name).To(Equal(indexName1))
+	Expect(journalIndexes[1].Name).To(Equal("Request.Body jsonpath $.id"))
+}
+
+func TestHoverfly_DeleteJournalIndex(t *testing.T) {
+	RegisterTestingT(t)
+	unit := NewHoverflyWithConfiguration(&Configuration{})
+	indexName1 := "Request.QueryParam.id"
+	indexName2 := "Request.Body 'jsonpath' '$.id'"
+	addIndexes(unit, indexName1, indexName2)
+	unit.Journal.DeleteIndex(indexName1)
+	journalIndexes := unit.Journal.GetAllIndexes()
+	Expect(journalIndexes).ToNot(BeNil())
+	Expect(journalIndexes).To(HaveLen(1))
+	Expect(journalIndexes[0].Name).To(Equal("Request.Body jsonpath $.id"))
+}
+
+func addIndexes(unit *Hoverfly, indexName1, indexName2 string) (string, string) {
+	err1 := unit.Journal.AddIndex(indexName1)
+	err2 := unit.Journal.AddIndex(indexName2)
+	Expect(err1).To(BeNil())
+	Expect(err2).To(BeNil())
+	return indexName1, indexName2
 }

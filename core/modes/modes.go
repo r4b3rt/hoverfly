@@ -3,17 +3,17 @@ package modes
 import (
 	"bytes"
 	"fmt"
-	"github.com/SpectoLabs/hoverfly/core/util"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
 
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	"github.com/SpectoLabs/hoverfly/core/util"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/SpectoLabs/goproxy"
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/models"
-	"github.com/sirupsen/logrus"
 )
 
 // SimulateMode - default mode when Hoverfly looks for captured requests to respond
@@ -45,12 +45,20 @@ type ModeArguments struct {
 	MatchingStrategy   *string
 	Stateful           bool
 	OverwriteDuplicate bool
+	CaptureOnMiss      bool
+	CaptureDelay       bool
 }
 
 type ProcessResult struct {
-	Response       *http.Response
-	FixedDelay     int
-	LogNormalDelay *models.ResponseDetailsLogNormal
+	Response                    *http.Response
+	FixedDelay                  int
+	LogNormalDelay              *models.ResponseDetailsLogNormal
+	PostServeActionInputDetails *PostServeActionInputDetails
+}
+
+type PostServeActionInputDetails struct {
+	PostServeAction string
+	Pair            *models.RequestResponsePair
 }
 
 func (p ProcessResult) IsResponseDelayable() bool {
@@ -59,6 +67,10 @@ func (p ProcessResult) IsResponseDelayable() bool {
 
 func newProcessResult(response *http.Response, fixedDelay int, logNormalDelay *models.ResponseDetailsLogNormal) ProcessResult {
 	return ProcessResult{Response: response, FixedDelay: fixedDelay, LogNormalDelay: logNormalDelay}
+}
+
+func newProcessResultWithPostServeActionInputDetails(response *http.Response, fixedDelay int, logNormalDelay *models.ResponseDetailsLogNormal, postServeActionInputDetails *PostServeActionInputDetails) ProcessResult {
+	return ProcessResult{Response: response, FixedDelay: fixedDelay, LogNormalDelay: logNormalDelay, PostServeActionInputDetails: postServeActionInputDetails}
 }
 
 // ReconstructRequest replaces original request with details provided in Constructor Payload.RequestMatcher
@@ -93,7 +105,6 @@ func ReconstructRequest(pair models.RequestResponsePair) (*http.Request, error) 
 	if err != nil {
 		return nil, err
 	}
-
 
 	newRequest.Method = pair.Request.Method
 	newRequest.Header = pair.Request.Headers
@@ -145,7 +156,7 @@ func ReconstructResponse(request *http.Request, pair models.RequestResponsePair)
 	return response
 }
 
-func GetRequestLogFields(request *models.RequestDetails) *logrus.Fields {
+func GetRequestLogFields(request *models.RequestDetails) *log.Fields {
 	if request == nil {
 		return &log.Fields{
 			"error": "nil request",
@@ -163,7 +174,7 @@ func GetRequestLogFields(request *models.RequestDetails) *logrus.Fields {
 	}
 }
 
-func GetResponseLogFields(response *models.ResponseDetails) *logrus.Fields {
+func GetResponseLogFields(response *models.ResponseDetails) *log.Fields {
 	if response == nil || response.Status == 0 {
 		return &log.Fields{
 			"error": "nil response",

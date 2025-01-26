@@ -11,7 +11,7 @@ import (
 	sorting "sort"
 	"strings"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/matching"
 	"github.com/SpectoLabs/hoverfly/core/models"
 	"github.com/SpectoLabs/hoverfly/core/util"
@@ -21,15 +21,26 @@ import (
 const RFC3339Milli = "2006-01-02T15:04:05.000Z07:00"
 
 type JournalEntry struct {
-	Request     *models.RequestDetails
-	Response    *models.ResponseDetails
-	Mode        string
-	TimeStarted time.Time
-	Latency     time.Duration
+	Request              *models.RequestDetails
+	Response             *models.ResponseDetails
+	Mode                 string
+	TimeStarted          time.Time
+	Latency              time.Duration
+	Id                   string
+	PostServeActionEntry *PostServeActionEntry
+}
+
+type PostServeActionEntry struct {
+	ActionName    string
+	InvokedTime   time.Time
+	CompletedTime time.Time
+	CorrelationId string
+	HttpStatus    int
 }
 
 type Journal struct {
 	entries    []JournalEntry
+	Indexes    []Index
 	EntryLimit int
 	mutex      sync.Mutex
 }
@@ -37,13 +48,58 @@ type Journal struct {
 func NewJournal() *Journal {
 	return &Journal{
 		entries:    []JournalEntry{},
+		Indexes:    []Index{},
 		EntryLimit: 1000,
 	}
 }
 
-func (this *Journal) NewEntry(request *http.Request, response *http.Response, mode string, started time.Time) error {
+func (this *Journal) AddIndex(indexKey string) error {
+
+	this.mutex.Lock()
+	for _, index := range this.Indexes {
+		if index.Name == indexKey {
+			return fmt.Errorf("index %s has been already set", indexKey)
+		}
+	}
+	indexMap := make(map[string]*JournalEntry)
+
+	index := Index{
+		Name:     strings.Replace(indexKey, "'", "", -1),
+		template: indexKey,
+		Entries:  indexMap,
+	}
+	for _, journalEntry := range this.entries {
+		index.AddJournalEntry(&journalEntry)
+	}
+	this.Indexes = append(this.Indexes, index)
+	this.mutex.Unlock()
+	return nil
+}
+
+func (this *Journal) DeleteIndex(indexKey string) {
+
+	indexes := []Index{}
+	for _, index := range this.Indexes {
+		if index.Name != indexKey {
+			indexes = append(indexes, index)
+		}
+	}
+	this.Indexes = indexes
+}
+
+func (this *Journal) GetAllIndexes() []v2.JournalIndexView {
+
+	var journalIndexViews []v2.JournalIndexView
+	for _, index := range this.Indexes {
+
+		journalIndexViews = append(journalIndexViews, index.getIndexView())
+	}
+	return journalIndexViews
+}
+
+func (this *Journal) NewEntry(request *http.Request, response *http.Response, mode string, started time.Time) (string, error) {
 	if this.EntryLimit == 0 {
-		return fmt.Errorf("Journal disabled")
+		return "", fmt.Errorf("Journal disabled")
 	}
 
 	payloadRequest, _ := models.NewRequestDetailsFromHttpRequest(request)
@@ -67,9 +123,13 @@ func (this *Journal) NewEntry(request *http.Request, response *http.Response, mo
 		Mode:        mode,
 		TimeStarted: started,
 		Latency:     time.Since(started),
+		Id:          util.RandStringFromTimestamp(15),
 	}
 
 	this.entries = append(this.entries, entry)
+	for _, index := range this.Indexes {
+		index.AddJournalEntry(&entry)
+	}
 
 	if log.IsLevelEnabled(log.DebugLevel) {
 		buf := new(bytes.Buffer)
@@ -90,13 +150,14 @@ func (this *Journal) NewEntry(request *http.Request, response *http.Response, mo
 
 	this.mutex.Unlock()
 
-	return nil
+	return entry.Id, nil
 }
 
 func (this *Journal) GetEntries(offset int, limit int, from *time.Time, to *time.Time, sort string) (v2.JournalView, error) {
 
 	journalView := v2.JournalView{
 		Journal: []v2.JournalEntryView{},
+		Index:   []v2.JournalIndexView{},
 		Offset:  offset,
 		Limit:   limit,
 		Total:   0,
@@ -156,6 +217,7 @@ func (this *Journal) GetEntries(offset int, limit int, from *time.Time, to *time
 	}
 
 	journalView.Journal = convertJournalEntries(selectedEntries[offset:endIndex])
+	journalView.Index = convertJournalIndexes(this.Indexes, selectedEntries[offset:endIndex])
 	journalView.Total = totalElements
 	return journalView, nil
 }
@@ -169,50 +231,45 @@ func (this *Journal) GetFilteredEntries(journalEntryFilterView v2.JournalEntryFi
 	}
 
 	requestMatcher := models.RequestMatcher{
-		Path:            models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Path),
-		Method:          models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Method),
-		Destination:     models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Destination),
-		Scheme:          models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Scheme),
-		DeprecatedQuery: models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.DeprecatedQuery),
-		Body:            models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Body),
-		Query:           models.NewQueryRequestFieldMatchersFromMapView(journalEntryFilterView.Request.Query),
-		Headers:         models.NewRequestFieldMatchersFromMapView(journalEntryFilterView.Request.Headers),
+		Path:        models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Path),
+		Method:      models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Method),
+		Destination: models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Destination),
+		Scheme:      models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Scheme),
+		Body:        models.NewRequestFieldMatchersFromView(journalEntryFilterView.Request.Body),
+		Query:       models.NewQueryRequestFieldMatchersFromMapView(journalEntryFilterView.Request.Query),
+		Headers:     models.NewRequestFieldMatchersFromMapView(journalEntryFilterView.Request.Headers),
 	}
 
-	allEntries := convertJournalEntries(this.entries)
-
-	for _, entry := range allEntries {
+	for _, entry := range this.entries {
 		if requestMatcher.Body == nil && requestMatcher.Destination == nil &&
 			requestMatcher.Headers == nil && requestMatcher.Method == nil &&
-			requestMatcher.Path == nil && requestMatcher.DeprecatedQuery == nil &&
+			requestMatcher.Path == nil &&
 			requestMatcher.Scheme == nil && requestMatcher.Query == nil {
 			continue
 		}
-		if !matching.FieldMatcher(requestMatcher.Body, *entry.Request.Body).Matched {
+
+		if !matching.BodyMatching(requestMatcher.Body, *entry.Request).Matched {
 			continue
 		}
-		if !matching.FieldMatcher(requestMatcher.Destination, *entry.Request.Destination).Matched {
+		if !matching.FieldMatcher(requestMatcher.Destination, entry.Request.Destination).Matched {
 			continue
 		}
-		if !matching.FieldMatcher(requestMatcher.Method, *entry.Request.Method).Matched {
+		if !matching.FieldMatcher(requestMatcher.Method, entry.Request.Method).Matched {
 			continue
 		}
-		if !matching.FieldMatcher(requestMatcher.Path, *entry.Request.Path).Matched {
+		if !matching.FieldMatcher(requestMatcher.Path, entry.Request.Path).Matched {
 			continue
 		}
-		if !matching.FieldMatcher(requestMatcher.DeprecatedQuery, *entry.Request.Query).Matched {
+		if !matching.FieldMatcher(requestMatcher.Scheme, entry.Request.Scheme).Matched {
 			continue
 		}
-		if !matching.FieldMatcher(requestMatcher.Scheme, *entry.Request.Scheme).Matched {
-			continue
-		}
-		if !matching.QueryMatching(requestMatcher, entry.Request.QueryMap).Matched {
+		if !matching.QueryMatching(requestMatcher, entry.Request.Query).Matched {
 			continue
 		}
 		if !matching.HeaderMatching(requestMatcher, entry.Request.Headers).Matched {
 			continue
 		}
-		filteredEntries = append(filteredEntries, entry)
+		filteredEntries = append(filteredEntries, convertJournalEntry(entry))
 	}
 
 	return filteredEntries, nil
@@ -224,8 +281,22 @@ func (this *Journal) DeleteEntries() error {
 	}
 
 	this.entries = []JournalEntry{}
+	this.Indexes = []Index{}
 
 	return nil
+}
+
+func convertJournalIndexes(indexes []Index, entries []JournalEntry) []v2.JournalIndexView {
+	filteredJournalEntries := util.NewHashSet()
+	for _, entry := range entries {
+		filteredJournalEntries.Add(entry.Id)
+	}
+	var journalIndexViews []v2.JournalIndexView
+	for _, index := range indexes {
+
+		journalIndexViews = append(journalIndexViews, index.convertIndex(filteredJournalEntries))
+	}
+	return journalIndexViews
 }
 
 func convertJournalEntries(entries []JournalEntry) []v2.JournalEntryView {
@@ -234,25 +305,42 @@ func convertJournalEntries(entries []JournalEntry) []v2.JournalEntryView {
 
 	for _, journalEntry := range entries {
 		journalEntryViews = append(journalEntryViews, v2.JournalEntryView{
-			Request:     journalEntry.Request.ConvertToRequestDetailsView(),
-			Response:    journalEntry.Response.ConvertToResponseDetailsView(),
-			Mode:        journalEntry.Mode,
-			TimeStarted: journalEntry.TimeStarted.Format(RFC3339Milli),
-			Latency:     journalEntry.Latency.Seconds() * 1e3,
+			Request:              journalEntry.Request.ConvertToRequestDetailsView(),
+			Response:             journalEntry.Response.ConvertToResponseDetailsView(),
+			PostServeActionEntry: getPostServeActionEntryView(journalEntry.PostServeActionEntry),
+			Mode:                 journalEntry.Mode,
+			TimeStarted:          journalEntry.TimeStarted.Format(RFC3339Milli),
+			Latency:              journalEntry.Latency.Seconds() * 1e3,
+			Id:                   journalEntry.Id,
 		})
 	}
 
 	return journalEntryViews
 }
 
+func getPostServeActionEntryView(entry *PostServeActionEntry) *v2.PostServeActionEntryView {
+
+	if entry != nil {
+		return &v2.PostServeActionEntryView{
+			ActionName:    entry.ActionName,
+			InvokedTime:   entry.InvokedTime.Format(RFC3339Milli),
+			CompletedTime: entry.CompletedTime.Format(RFC3339Milli),
+			CorrelationId: entry.CorrelationId,
+			HttpStatus:    entry.HttpStatus,
+		}
+	}
+	return nil
+}
+
 func convertJournalEntry(entry JournalEntry) v2.JournalEntryView {
 
 	return v2.JournalEntryView{
-		Request:     entry.Request.ConvertToRequestDetailsView(),
-		Response:    entry.Response.ConvertToResponseDetailsView(),
-		Mode:        entry.Mode,
-		TimeStarted: entry.TimeStarted.Format(RFC3339Milli),
-		Latency:     entry.Latency.Seconds() * 1e3,
+		Request:              entry.Request.ConvertToRequestDetailsView(),
+		Response:             entry.Response.ConvertToResponseDetailsView(),
+		Mode:                 entry.Mode,
+		TimeStarted:          entry.TimeStarted.Format(RFC3339Milli),
+		Latency:              entry.Latency.Seconds() * 1e3,
+		PostServeActionEntry: getPostServeActionEntryView(entry.PostServeActionEntry),
 	}
 }
 
@@ -278,4 +366,21 @@ func getSortParameters(sort string) (string, string, error) {
 	}
 
 	return sortKey, sortOrder, nil
+}
+
+func (journal *Journal) UpdatePostServeActionDetailsInJournal(id string, actionName, correlationID string, invokedTime, completedTime time.Time, httpStatus int) {
+
+	for i, _ := range journal.entries {
+
+		if journal.entries[i].Id == id {
+			journal.entries[i].PostServeActionEntry = &PostServeActionEntry{
+				ActionName:    actionName,
+				CorrelationId: correlationID,
+				InvokedTime:   invokedTime,
+				CompletedTime: completedTime,
+				HttpStatus:    httpStatus,
+			}
+
+		}
+	}
 }

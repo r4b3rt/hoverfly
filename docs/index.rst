@@ -1,4 +1,4 @@
-.. image:: logo-large.png
+.. image:: _static/logo-large.png
 
 |
 |
@@ -8,7 +8,7 @@
     :target: https://circleci.com/gh/SpectoLabs/hoverfly
 
 .. image:: https://badges.gitter.im/SpectoLabs/hoverfly.svg
-    :target: https://gitter.im/SpectoLabs/hoverfly 
+    :target: https://gitter.im/SpectoLabs/hoverfly
 
 
 |
@@ -34,7 +34,7 @@ Source
 
 The Hoverfly source code is available on `GitHub <https://github.com/SpectoLabs/hoverfly>`_.
 
-Hoverfly is developed and maintained by `SpectoLabs <https://specto.io>`_.
+Hoverfly is developed and maintained by `iOCO Solutions <https://ioco.uk>`_.
 
 Contents
 --------

@@ -3,13 +3,17 @@ package hoverfly
 import (
 	"errors"
 	"fmt"
-	"github.com/SpectoLabs/hoverfly/core/delay"
+	"github.com/SpectoLabs/hoverfly/core/templating"
 	"regexp"
+	"sort"
+
+	"github.com/SpectoLabs/hoverfly/core/action"
+	"github.com/SpectoLabs/hoverfly/core/delay"
 
 	"strings"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v1"
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v1 "github.com/SpectoLabs/hoverfly/core/handlers/v1"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/matching/matchers"
 	"github.com/SpectoLabs/hoverfly/core/metrics"
 	"github.com/SpectoLabs/hoverfly/core/middleware"
@@ -105,6 +109,8 @@ func (hf *Hoverfly) SetModeWithArguments(modeView v2.ModeView) error {
 		MatchingStrategy:   matchingStrategy,
 		Stateful:           modeView.Arguments.Stateful,
 		OverwriteDuplicate: modeView.Arguments.OverwriteDuplicate,
+		CaptureOnMiss:      modeView.Arguments.CaptureOnMiss,
+		CaptureDelay:       modeView.Arguments.CaptureDelay,
 	}
 
 	hf.modeMap[hf.Cfg.GetMode()].SetArguments(modeArguments)
@@ -204,6 +210,21 @@ func (hf *Hoverfly) SetResponseDelays(payloadView v1.ResponseDelayPayloadView) e
 	return nil
 }
 
+func (hf *Hoverfly) SetVariables(variables []v2.GlobalVariableViewV5) error {
+	err := models.ValidateVariablePayload(variables, hf.templator.GetSupportedMethodMap())
+	if err != nil {
+		return err
+	}
+
+	hf.Simulation.AddVariables(models.ImportVariables(variables))
+	return nil
+}
+
+func (hf *Hoverfly) SetLiterals(literals []v2.GlobalLiteralViewV5) {
+
+	hf.Simulation.AddLiterals(models.ImportLiterals(literals))
+}
+
 func (hf *Hoverfly) SetResponseDelaysLogNormal(payloadView v1.ResponseDelayLogNormalPayloadView) error {
 	err := models.ValidateResponseDelayLogNormalPayload(payloadView)
 	if err != nil {
@@ -255,6 +276,8 @@ func (hf *Hoverfly) GetSimulation() (v2.SimulationViewV5, error) {
 	return v2.BuildSimulationView(pairViews,
 		hf.Simulation.ResponseDelays.ConvertToResponseDelayPayloadView(),
 		hf.Simulation.ResponseDelaysLogNormal.ConvertToResponseDelayLogNormalPayloadView(),
+		hf.Simulation.Vars.ConvertToGlobalVariablesPayloadView(),
+		hf.Simulation.Literals.ConvertToGlobalLiteralsPayloadView(),
 		hf.version), nil
 }
 
@@ -284,6 +307,8 @@ func (hf *Hoverfly) GetFilteredSimulation(urlPattern string) (v2.SimulationViewV
 	return v2.BuildSimulationView(pairViews,
 		hf.Simulation.ResponseDelays.ConvertToResponseDelayPayloadView(),
 		hf.Simulation.ResponseDelaysLogNormal.ConvertToResponseDelayLogNormalPayloadView(),
+		hf.Simulation.Vars.ConvertToGlobalVariablesPayloadView(),
+		hf.Simulation.Literals.ConvertToGlobalLiteralsPayloadView(),
 		hf.version), nil
 }
 
@@ -297,7 +322,7 @@ func (hf *Hoverfly) putOrReplaceSimulation(simulationView v2.SimulationViewV5, o
 		hf.DeleteSimulation()
 	}
 
-	result := hf.importRequestResponsePairViews(simulationView.DataViewV5.RequestResponsePairs)
+	result := hf.importRequestResponsePairViewsWithCustomData(simulationView.DataViewV5.RequestResponsePairs, simulationView.GlobalLiterals, simulationView.GlobalVariables)
 	if result.GetError() != nil {
 		return result
 	}
@@ -319,7 +344,6 @@ func (hf *Hoverfly) putOrReplaceSimulation(simulationView v2.SimulationViewV5, o
 	return result
 }
 
-
 func (hf *Hoverfly) ReplaceSimulation(simulationView v2.SimulationViewV5) v2.SimulationImportResult {
 	return hf.putOrReplaceSimulation(simulationView, true)
 }
@@ -329,7 +353,7 @@ func (hf *Hoverfly) PutSimulation(simulationView v2.SimulationViewV5) v2.Simulat
 }
 
 func (hf *Hoverfly) DeleteSimulation() {
-	hf.Simulation.DeleteMatchingPairs()
+	hf.Simulation.DeleteMatchingPairsAlongWithCustomData()
 	hf.DeleteResponseDelays()
 	hf.DeleteResponseDelaysLogNormal()
 	hf.FlushCache()
@@ -409,4 +433,157 @@ func (hf *Hoverfly) SetPACFile(pacFile []byte) {
 
 func (hf *Hoverfly) DeletePACFile() {
 	hf.Cfg.PACFile = nil
+}
+
+func (hf *Hoverfly) GetFilteredDiff(diffFilterView v2.DiffFilterView) map[v2.SimpleRequestDefinitionView][]v2.DiffReport {
+	responsesDiff := hf.responsesDiff
+	filteredResponsesDiff := make(map[v2.SimpleRequestDefinitionView][]v2.DiffReport)
+	for request, diffReports := range responsesDiff {
+		for _, diffReport := range diffReports {
+			var filteredDiffEntries []v2.DiffReportEntry
+			for _, diffEntry := range diffReport.DiffEntries {
+				if !needsToExcludeDiffEntry(&diffEntry, &diffFilterView) {
+					filteredDiffEntries = append(filteredDiffEntries, diffEntry)
+				}
+			}
+			if len(filteredDiffEntries) == 0 {
+				continue
+			}
+			filteredDiffReport := v2.DiffReport{
+				Timestamp:   diffReport.Timestamp,
+				DiffEntries: filteredDiffEntries,
+			}
+			if diffReportArr, ok := filteredResponsesDiff[request]; !ok {
+				filteredResponsesDiff[request] = []v2.DiffReport{filteredDiffReport}
+			} else {
+				diffReportArr = append(diffReportArr, filteredDiffReport)
+				filteredResponsesDiff[request] = diffReportArr
+			}
+		}
+	}
+	return filteredResponsesDiff
+}
+
+func (hf *Hoverfly) GetAllPostServeActions() v2.PostServeActionDetailsView {
+	var actions []v2.ActionView
+	actionNames := make([]string, 0, len(hf.PostServeActionDetails.Actions))
+
+	// Collect all action names
+	for actionName := range hf.PostServeActionDetails.Actions {
+		actionNames = append(actionNames, actionName)
+	}
+
+	// Sort action names to enforce natural order
+	sort.Strings(actionNames)
+
+	// Append actions in sorted order
+	for _, actionName := range actionNames {
+		action := hf.PostServeActionDetails.Actions[actionName]
+		actions = append(actions, action.GetActionView(actionName))
+	}
+
+	if hf.PostServeActionDetails.FallbackAction != nil {
+		actions = append(actions, hf.PostServeActionDetails.FallbackAction.GetActionView(""))
+	}
+
+	return v2.PostServeActionDetailsView{
+		Actions: actions,
+	}
+}
+
+func (hf *Hoverfly) SetLocalPostServeAction(actionName string, binary string, scriptContent string, delayInMs int) error {
+
+	action, err := action.NewLocalAction(binary, scriptContent, delayInMs)
+	if err != nil {
+		return err
+	}
+	err = hf.PostServeActionDetails.SetAction(actionName, action)
+	if err != nil {
+		return err
+	}
+	log.Info("Local post serve action is set")
+	return nil
+}
+
+func (hf *Hoverfly) SetRemotePostServeAction(actionName, remote string, delayInMs int) error {
+
+	action, err := action.NewRemoteAction(remote, delayInMs)
+	if err != nil {
+		return err
+	}
+	err = hf.PostServeActionDetails.SetAction(actionName, action)
+	if err != nil {
+		return err
+	}
+	log.Info("Remote post serve action is set")
+	return nil
+}
+
+func (hf *Hoverfly) DeletePostServeAction(actionName string) error {
+
+	err := hf.PostServeActionDetails.DeleteAction(actionName)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func needsToExcludeDiffEntry(diffReportEntry *v2.DiffReportEntry, diffFilterView *v2.DiffFilterView) bool {
+
+	//check for header... headers which are ignored during configuration
+	for _, header := range (*diffFilterView).ExcludedHeaders {
+		headerField := "header/" + header
+		if (*diffReportEntry).Field == headerField {
+			return true
+		}
+	}
+
+	for _, responseField := range (*diffFilterView).ExcludedResponseFields {
+		relativeResponseField := getRelativeFieldFromJsonPath(responseField)
+		if (*diffReportEntry).Field == relativeResponseField {
+			return true
+		}
+	}
+	return false
+}
+
+func getRelativeFieldFromJsonPath(responseField string) string {
+	return strings.Replace(strings.Replace(responseField, "$.", "body/", -1), ".", "/", -1)
+}
+
+func (hf *Hoverfly) SetCsvDataSource(dataSourceName, dataSourceContent string) error {
+
+	dataStore, err := templating.NewCsvDataSource(dataSourceName, dataSourceContent)
+	if err != nil {
+		return err
+	}
+	hf.templator.TemplateHelper.TemplateDataSource.SetDataSource(dataSourceName, dataStore)
+	return nil
+}
+
+func (hf *Hoverfly) DeleteDataSource(dataSourceName string) {
+
+	hf.templator.TemplateHelper.TemplateDataSource.DeleteDataSource(dataSourceName)
+}
+
+func (hf *Hoverfly) GetAllDataSources() v2.TemplateDataSourceView {
+
+	var csvDataSourceViews []v2.CSVDataSourceView
+	for _, value := range hf.templator.TemplateHelper.TemplateDataSource.GetAllDataSources() {
+		csvDataSource, _ := value.GetDataSourceView()
+		csvDataSourceViews = append(csvDataSourceViews, csvDataSource)
+	}
+	return v2.TemplateDataSourceView{DataSources: csvDataSourceViews}
+}
+
+func (hf *Hoverfly) AddJournalIndex(indexKey string) error {
+	return hf.Journal.AddIndex(indexKey)
+}
+
+func (hf *Hoverfly) DeleteJournalIndex(indexKey string) {
+	hf.Journal.DeleteIndex(indexKey)
+}
+
+func (hf *Hoverfly) GetAllIndexes() []v2.JournalIndexView {
+	return hf.Journal.GetAllIndexes()
 }

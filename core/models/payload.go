@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,15 +13,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/interfaces"
 	"github.com/SpectoLabs/hoverfly/core/util"
 	log "github.com/sirupsen/logrus"
-)
-
-var (
-	// mime types which will not be base 64 encoded when exporting as JSON
-	supportedMimeTypes = [...]string{"text", "plain", "css", "html", "json", "xml", "js", "javascript"}
 )
 
 // Payload structure holds request and response structure
@@ -61,17 +57,20 @@ type RequestDetails struct {
 	Scheme      string
 	Query       map[string][]string
 	Body        string
+	FormData    map[string][]string
 	Headers     map[string][]string
 	rawQuery    string
 }
 
 func NewRequestDetailsFromHttpRequest(req *http.Request) (RequestDetails, error) {
+
 	if req.Body == nil {
 		req.Body = ioutil.NopCloser(bytes.NewBuffer([]byte("")))
 	}
 
 	reqBody, err := util.GetRequestBody(req)
 
+	req.ParseForm()
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),
@@ -98,8 +97,9 @@ func NewRequestDetailsFromHttpRequest(req *http.Request) (RequestDetails, error)
 		Method:      req.Method,
 		Destination: strings.ToLower(req.Host),
 		Scheme:      scheme,
-		Query:       req.URL.Query(),
+		Query:       parseQuery(req.URL.RawQuery),
 		Body:        reqBody,
+		FormData:    req.PostForm,
 		Headers:     req.Header.Clone(),
 		rawQuery:    req.URL.RawQuery,
 	}
@@ -117,6 +117,11 @@ func NewRequestDetailsFromHttpRequest(req *http.Request) (RequestDetails, error)
 func (this *RequestDetails) ConvertToRequestDetailsView() v2.RequestDetailsView {
 	queryString := this.QueryString()
 
+	body := this.Body
+	if util.NeedsEncoding(this.Headers, this.Body) {
+		body = base64.StdEncoding.EncodeToString([]byte(this.Body))
+	}
+
 	return v2.RequestDetailsView{
 		Path:        &this.Path,
 		Method:      &this.Method,
@@ -124,7 +129,8 @@ func (this *RequestDetails) ConvertToRequestDetailsView() v2.RequestDetailsView 
 		Scheme:      &this.Scheme,
 		Query:       &queryString,
 		QueryMap:    this.Query,
-		Body:        &this.Body,
+		Body:        &body,
+		FormData:    this.FormData,
 		Headers:     this.Headers,
 	}
 }
@@ -160,7 +166,10 @@ func (r *RequestDetails) concatenate(withHost bool) string {
 	if withHost {
 		buffer.WriteString(r.Destination)
 	}
-
+	if len(r.FormData) > 0 {
+		formData, _ := json.Marshal(r.FormData)
+		buffer.WriteString(bytes.NewBuffer(formData).String())
+	}
 	buffer.WriteString(r.Path)
 	buffer.WriteString(r.Method)
 	buffer.WriteString(r.QueryString())
@@ -203,6 +212,7 @@ type ResponseDetails struct {
 	RemovesState     []string
 	FixedDelay       int
 	LogNormalDelay   *ResponseDetailsLogNormal
+	PostServeAction  string
 }
 
 func NewResponseDetailsFromResponse(data interfaces.Response) ResponseDetails {
@@ -222,6 +232,7 @@ func NewResponseDetailsFromResponse(data interfaces.Response) ResponseDetails {
 		TransitionsState: data.GetTransitionsState(),
 		RemovesState:     data.GetRemovesState(),
 		FixedDelay:       data.GetFixedDelay(),
+		PostServeAction:  data.GetPostServeAction(),
 	}
 
 	if d := data.GetLogNormalDelay(); d != nil {
@@ -240,22 +251,7 @@ func NewResponseDetailsFromResponse(data interfaces.Response) ResponseDetails {
 // If the response headers indicate that the content is encoded, or it has a non-matching
 // supported mimetype, we base64 encode it.
 func (r *ResponseDetails) ConvertToResponseDetailsView() v2.ResponseDetailsView {
-	needsEncoding := false
-
-	// Check headers for gzip
-	contentEncodingValues := r.Headers["Content-Encoding"]
-	if len(contentEncodingValues) > 0 {
-		needsEncoding = true
-	} else {
-		mimeType := http.DetectContentType([]byte(r.Body))
-		needsEncoding = true
-		for _, v := range supportedMimeTypes {
-			if strings.Contains(mimeType, v) {
-				needsEncoding = false
-				break
-			}
-		}
-	}
+	needsEncoding := util.NeedsEncoding(r.Headers, r.Body)
 
 	// If contains gzip, base64 encode
 	body := r.Body
@@ -264,10 +260,11 @@ func (r *ResponseDetails) ConvertToResponseDetailsView() v2.ResponseDetailsView 
 	}
 
 	return v2.ResponseDetailsView{
-		Status:      r.Status,
-		Body:        body,
-		Headers:     r.Headers,
-		EncodedBody: needsEncoding,
+		Status:          r.Status,
+		Body:            body,
+		Headers:         r.Headers,
+		EncodedBody:     needsEncoding,
+		PostServeAction: r.PostServeAction,
 	}
 }
 
@@ -281,7 +278,7 @@ func (r *ResponseDetails) ConvertToResponseDetailsViewV5() v2.ResponseDetailsVie
 	} else {
 		mimeType := http.DetectContentType([]byte(r.Body))
 		needsEncoding = true
-		for _, v := range supportedMimeTypes {
+		for _, v := range util.SupportedMimeTypes {
 			if strings.Contains(mimeType, v) {
 				needsEncoding = false
 				break
@@ -305,6 +302,7 @@ func (r *ResponseDetails) ConvertToResponseDetailsViewV5() v2.ResponseDetailsVie
 		RemovesState:     r.RemovesState,
 		TransitionsState: r.TransitionsState,
 		FixedDelay:       r.FixedDelay,
+		PostServeAction:  r.PostServeAction,
 	}
 
 	if r.LogNormalDelay != nil {
@@ -319,6 +317,29 @@ func (r *ResponseDetails) ConvertToResponseDetailsViewV5() v2.ResponseDetailsVie
 	return view
 }
 
-func (this RequestDetails) GetRawQuery() string {
+func (this *RequestDetails) GetRawQuery() string {
 	return this.rawQuery
+}
+
+// Similar to req.URL.Query() but allowing compound query params like qq=country=BEL;postalCode=1234;city=SomeCity;street=SomeStreet;houseNumber=25%20a
+func parseQuery(query string) map[string][]string {
+	m := make(map[string][]string)
+	for query != "" {
+		var key string
+		key, query, _ = strings.Cut(query, "&")
+		if key == "" {
+			continue
+		}
+		key, value, _ := strings.Cut(key, "=")
+		key, err := url.QueryUnescape(key)
+		if err != nil {
+			continue
+		}
+		value, err = url.QueryUnescape(value)
+		if err != nil {
+			continue
+		}
+		m[key] = append(m[key], value)
+	}
+	return m
 }

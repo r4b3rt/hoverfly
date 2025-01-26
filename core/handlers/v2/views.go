@@ -38,6 +38,8 @@ type ModeArgumentsView struct {
 	MatchingStrategy   *string  `json:"matchingStrategy,omitempty"`
 	Stateful           bool     `json:"stateful,omitempty"`
 	OverwriteDuplicate bool     `json:"overwriteDuplicate,omitempty"`
+	CaptureOnMiss      bool     `json:"captureOnMiss,omitempty"`
+	CaptureDelay       bool     `json:"captureDelay,omitempty"`
 }
 
 type IsWebServerView struct {
@@ -86,17 +88,28 @@ type ClosestMissView struct {
 
 type JournalView struct {
 	Journal []JournalEntryView `json:"journal"`
+	Index   []JournalIndexView `json:"indexes"`
 	Offset  int                `json:"offset"`
 	Limit   int                `json:"limit"`
 	Total   int                `json:"total"`
 }
 
 type JournalEntryView struct {
-	Request     RequestDetailsView  `json:"request"`
-	Response    ResponseDetailsView `json:"response"`
-	Mode        string              `json:"mode"`
-	TimeStarted string              `json:"timeStarted"`
-	Latency     float64             `json:"latency"`
+	Request              RequestDetailsView        `json:"request"`
+	Response             ResponseDetailsView       `json:"response"`
+	Mode                 string                    `json:"mode"`
+	TimeStarted          string                    `json:"timeStarted"`
+	Latency              float64                   `json:"latency"`
+	Id                   string                    `json:"id"`
+	PostServeActionEntry *PostServeActionEntryView `json:"postServeAction,omitEmpty"`
+}
+
+type PostServeActionEntryView struct {
+	ActionName    string `json:"name"`
+	InvokedTime   string `json:"invoked"`
+	CompletedTime string `json:"completed"`
+	CorrelationId string `json:"correlationId,omitempty"`
+	HttpStatus    int    `json:"status,omitempty"`
 }
 
 type JournalEntryFilterView struct {
@@ -104,7 +117,7 @@ type JournalEntryFilterView struct {
 }
 
 type StateView struct {
-	State map[string]string `json:"state"`
+	State map[string]string `json:"state" validate:"required"`
 }
 
 type DiffView struct {
@@ -132,4 +145,23 @@ type DiffReportEntry struct {
 	Field    string `json:"field"`
 	Expected string `json:"expected"`
 	Actual   string `json:"actual"`
+}
+
+type DiffFilterView struct {
+	ExcludedHeaders        []string `json:"excludedHeaders"`
+	ExcludedResponseFields []string `json:"excludedResponseFields"`
+}
+
+type JournalIndexView struct {
+	Name    string                  `json:"name"`
+	Entries []JournalIndexEntryView `json:"entries,omitempty"`
+}
+
+type JournalIndexEntryView struct {
+	Key            string `json:"key"`
+	JournalEntryId string `json:"journalEntryId"`
+}
+
+type JournalIndexRequestView struct {
+	Name string `json:"name"`
 }

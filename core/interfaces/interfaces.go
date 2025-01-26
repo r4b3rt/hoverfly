@@ -12,6 +12,7 @@ type Request interface {
 	GetScheme() *string
 	GetQuery() *string
 	GetBody() *string
+	GetFormData() map[string][]string
 	GetHeaders() map[string][]string
 }
 
@@ -33,4 +34,5 @@ type Response interface {
 	GetRemovesState() []string
 	GetFixedDelay() int
 	GetLogNormalDelay() ResponseDelay
+	GetPostServeAction() string
 }

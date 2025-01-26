@@ -3,16 +3,17 @@ package hoverfly
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/SpectoLabs/hoverfly/core/delay"
-	"github.com/SpectoLabs/hoverfly/core/state"
-	"github.com/SpectoLabs/hoverfly/core/util"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
 	"strconv"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	"github.com/SpectoLabs/hoverfly/core/delay"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	"github.com/SpectoLabs/hoverfly/core/state"
+	"github.com/SpectoLabs/hoverfly/core/util"
+
 	"github.com/SpectoLabs/hoverfly/core/models"
 	log "github.com/sirupsen/logrus"
 )
@@ -65,6 +66,7 @@ func (hf *Hoverfly) ImportFromDisk(path string) error {
 	if err != nil {
 		return fmt.Errorf("Got error while opening payloads file, error %s", err.Error())
 	}
+	defer pairsFile.Close()
 
 	var simulation v2.SimulationViewV5
 
@@ -106,14 +108,26 @@ func (hf *Hoverfly) ImportFromURL(url string) error {
 	return hf.PutSimulation(simulation).GetError()
 }
 
-// importRequestResponsePairViews - a function to save given pairs into the database.
-func (hf *Hoverfly) importRequestResponsePairViews(pairViews []v2.RequestMatcherResponsePairViewV5) v2.SimulationImportResult {
+// importRequestResponsePairViews along with custom data - a function to save given pairs into the database. custom data is loaded before request/response pair so that in case someone access it, it ll be able to render
+func (hf *Hoverfly) importRequestResponsePairViewsWithCustomData(pairViews []v2.RequestMatcherResponsePairViewV5, literals []v2.GlobalLiteralViewV5, variables []v2.GlobalVariableViewV5) v2.SimulationImportResult {
 	importResult := v2.SimulationImportResult{}
 	initialStates := map[string]string{}
 	if len(pairViews) > 0 {
+
+		hf.SetLiterals(literals)
+		if err := hf.SetVariables(variables); err != nil {
+			importResult.SetError(err)
+			return importResult
+		}
+
 		success := 0
 		failed := 0
 		for i, pairView := range pairViews {
+
+			if _, ok := hf.PostServeActionDetails.Actions[pairView.Response.PostServeAction]; pairView.Response.PostServeAction != "" && !ok && hf.PostServeActionDetails.FallbackAction == nil {
+				importResult.SetError(fmt.Errorf("invalid post server action name provided"))
+				break
+			}
 
 			pair := models.NewRequestMatcherResponsePairFromView(&pairView)
 
@@ -141,10 +155,6 @@ func (hf *Hoverfly) importRequestResponsePairViews(pairViews []v2.RequestMatcher
 				success++
 			} else {
 				importResult.AddPairIgnoredWarning(i)
-			}
-
-			if pairView.RequestMatcher.DeprecatedQuery != nil && len(pairView.RequestMatcher.DeprecatedQuery) != 0 {
-				importResult.AddDeprecatedQueryWarning(i)
 			}
 
 			if len(pairView.Response.Headers["Content-Length"]) > 0 && len(pairView.Response.Headers["Transfer-Encoding"]) > 0 {

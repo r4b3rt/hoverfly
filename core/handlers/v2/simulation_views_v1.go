@@ -20,23 +20,24 @@ type RequestResponsePairViewV1 struct {
 	Request  RequestDetailsView  `json:"request"`
 }
 
-//Gets Response - required for interfaces.RequestResponsePairView
+// Gets Response - required for interfaces.RequestResponsePairView
 func (this RequestResponsePairViewV1) GetResponse() interfaces.Response { return this.Response }
 
-//Gets RequestMatcher - required for interfaces.RequestResponsePairView
+// Gets RequestMatcher - required for interfaces.RequestResponsePairView
 func (this RequestResponsePairViewV1) GetRequest() interfaces.Request { return this.Request }
 
 // ResponseDetailsView is used when marshalling and
 // unmarshalling requests. This struct's Body may be Base64
 // encoded based on the EncodedBody field.
 type ResponseDetailsView struct {
-	Status      int                 `json:"status"`
-	Body        string              `json:"body"`
-	EncodedBody bool                `json:"encodedBody"`
-	Headers     map[string][]string `json:"headers,omitempty"`
+	Status          int                 `json:"status"`
+	Body            string              `json:"body"`
+	EncodedBody     bool                `json:"encodedBody"`
+	Headers         map[string][]string `json:"headers,omitempty"`
+	PostServeAction string              `json:"postServeAction,omitempty"`
 }
 
-//Gets Status - required for interfaces.Response
+// Gets Status - required for interfaces.Response
 func (this ResponseDetailsView) GetStatus() int { return this.Status }
 
 // Gets Body - required for interfaces.Response
@@ -47,6 +48,8 @@ func (this ResponseDetailsView) GetBodyFile() string { return "" }
 
 // Gets EncodedBody - required for interfaces.Response
 func (this ResponseDetailsView) GetEncodedBody() bool { return this.EncodedBody }
+
+func (this RequestDetailsView) GetFormData() map[string][]string { return this.FormData }
 
 func (this ResponseDetailsView) GetTemplated() bool { return false }
 
@@ -63,6 +66,10 @@ func (this ResponseDetailsView) GetFixedDelay() int { return 0 }
 // Gets LogNormalDelay - required for interfaces.Response
 func (this ResponseDetailsView) GetLogNormalDelay() interfaces.ResponseDelay { return nil }
 
+func (this ResponseDetailsView) GetPostServeAction() string {
+	return this.PostServeAction
+}
+
 // RequestDetailsView is used when marshalling and unmarshalling RequestDetails
 type RequestDetailsView struct {
 	RequestType *string             `json:"requestType,omitempty"`
@@ -72,23 +79,24 @@ type RequestDetailsView struct {
 	Scheme      *string             `json:"scheme"`
 	Query       *string             `json:"query"`
 	QueryMap    map[string][]string `json:"-"`
+	FormData    map[string][]string `json:"formData"`
 	Body        *string             `json:"body"`
 	Headers     map[string][]string `json:"headers"`
 }
 
-//Gets Path - required for interfaces.RequestMatcher
+// Gets Path - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetPath() *string { return this.Path }
 
-//Gets Method - required for interfaces.RequestMatcher
+// Gets Method - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetMethod() *string { return this.Method }
 
-//Gets Destination - required for interfaces.RequestMatcher
+// Gets Destination - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetDestination() *string { return this.Destination }
 
-//Gets Scheme - required for interfaces.RequestMatcher
+// Gets Scheme - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetScheme() *string { return this.Scheme }
 
-//Gets Query - required for interfaces.RequestMatcher
+// Gets Query - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetQuery() *string {
 	if this.Query == nil {
 		return this.Query
@@ -97,10 +105,10 @@ func (this RequestDetailsView) GetQuery() *string {
 	return &queryString
 }
 
-//Gets Body - required for interfaces.RequestMatcher
+// Gets Body - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetBody() *string { return this.Body }
 
-//Gets Headers - required for interfaces.RequestMatcher
+// Gets Headers - required for interfaces.RequestMatcher
 func (this RequestDetailsView) GetHeaders() map[string][]string { return this.Headers }
 
 // Gets FixedDelay - required for interfaces.Response

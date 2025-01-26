@@ -27,6 +27,7 @@ type RequestDetailsView struct {
 	Scheme      *string             `json:"scheme"`
 	Query       *string             `json:"query"`
 	Body        *string             `json:"body"`
+	FormData    map[string][]string `json:"formData"`
 	Headers     map[string][]string `json:"headers"`
 }
 
@@ -51,13 +52,14 @@ func (this RequestDetailsView) GetBody() *string { return this.Body }
 func (this RequestDetailsView) GetHeaders() map[string][]string { return this.Headers }
 
 type ResponseDetailsView struct {
-	Status         int                       `json:"status"`
-	Body           string                    `json:"body"`
-	BodyFile       string                    `json:"bodyFile"`
-	EncodedBody    bool                      `json:"encodedBody"`
-	Headers        map[string][]string       `json:"headers"`
-	FixedDelay     int                       `json:"fixedDelay"`
-	LogNormalDelay *v2.LogNormalDelayOptions `json:"logNormalDelay"`
+	Status          int                       `json:"status"`
+	Body            string                    `json:"body"`
+	BodyFile        string                    `json:"bodyFile"`
+	EncodedBody     bool                      `json:"encodedBody"`
+	Headers         map[string][]string       `json:"headers"`
+	FixedDelay      int                       `json:"fixedDelay"`
+	LogNormalDelay  *v2.LogNormalDelayOptions `json:"logNormalDelay"`
+	PostServeAction string                    `json:"postServeAction"`
 }
 
 func (this ResponseDetailsView) GetStatus() int { return this.Status }
@@ -67,6 +69,8 @@ func (this ResponseDetailsView) GetBody() string { return this.Body }
 func (this ResponseDetailsView) GetBodyFile() string { return this.BodyFile }
 
 func (this ResponseDetailsView) GetEncodedBody() bool { return this.EncodedBody }
+
+func (this RequestDetailsView) GetFormData() map[string][]string { return this.FormData }
 
 func (this ResponseDetailsView) GetTemplated() bool { return false }
 
@@ -85,4 +89,8 @@ func (this ResponseDetailsView) GetLogNormalDelay() interfaces.ResponseDelay {
 	}
 
 	return nil
+}
+
+func (this ResponseDetailsView) GetPostServeAction() string {
+	return this.PostServeAction
 }

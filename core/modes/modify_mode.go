@@ -3,6 +3,7 @@ package modes
 import (
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/models"
@@ -10,7 +11,7 @@ import (
 
 type HoverflyModify interface {
 	ApplyMiddleware(models.RequestResponsePair) (models.RequestResponsePair, error)
-	DoRequest(*http.Request) (*http.Response, error)
+	DoRequest(*http.Request) (*http.Response, *time.Duration, error)
 }
 
 type ModifyMode struct {
@@ -36,7 +37,7 @@ func (this ModifyMode) Process(request *http.Request, details models.RequestDeta
 		return ReturnErrorAndLog(request, err, &pair, "There was an error when rebuilding the modified http request", Modify)
 	}
 
-	resp, err := this.Hoverfly.DoRequest(modifiedRequest)
+	resp, _, err := this.Hoverfly.DoRequest(modifiedRequest)
 	if err != nil {
 		return ReturnErrorAndLog(request, err, &pair, "There was an error when forwarding the request to the intended destination", Modify)
 	}

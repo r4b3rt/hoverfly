@@ -2,36 +2,39 @@ package hoverfly
 
 import (
 	"fmt"
-	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
-	"github.com/aymerick/raymond"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/SpectoLabs/hoverfly/core/errors"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/matching"
 	"github.com/SpectoLabs/hoverfly/core/matching/matchers"
 	"github.com/SpectoLabs/hoverfly/core/models"
 	"github.com/SpectoLabs/hoverfly/core/modes"
 	"github.com/SpectoLabs/hoverfly/core/util"
+	"github.com/SpectoLabs/raymond"
 	log "github.com/sirupsen/logrus"
 )
 
 // DoRequest - performs request and returns response that should be returned to client and error
-func (hf *Hoverfly) DoRequest(request *http.Request) (*http.Response, error) {
+func (hf *Hoverfly) DoRequest(request *http.Request) (*http.Response, *time.Duration, error) {
 
 	// We can't have this set. And it only contains "/pkg/net/http/" anyway
 	request.RequestURI = ""
 
 	client, err := GetHttpClient(hf, request.Host)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	start := time.Now()
 	resp, err := client.Do(request)
+	elapsed := time.Since(start)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	resp.Header.Set("Hoverfly", "Was-Here")
@@ -40,8 +43,7 @@ func (hf *Hoverfly) DoRequest(request *http.Request) (*http.Response, error) {
 		resp.Header.Add("Hoverfly", "Forwarded")
 	}
 
-	return resp, nil
-
+	return resp, &elapsed, nil
 }
 
 // GetResponse returns stored response from cache
@@ -188,7 +190,12 @@ func (hf *Hoverfly) readResponseBodyFile(filePath string) (string, error) {
 		return "", fmt.Errorf("bodyFile contains absolute path (%s). only relative is supported", filePath)
 	}
 
-	fileContents, err := ioutil.ReadFile(filepath.Join(hf.Cfg.ResponsesBodyFilesPath, filePath))
+	resolvedPath, err := util.ResolveAndValidatePath(hf.Cfg.ResponsesBodyFilesPath, filePath)
+	if err != nil {
+		return "", err
+	}
+
+	fileContents, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return "", err
 	}
@@ -219,7 +226,7 @@ func (hf *Hoverfly) applyTransitionsStateTemplating(requestDetails *models.Reque
 	state := make(map[string]string)
 
 	for k, v := range stateTemplates {
-		state[k], err = hf.templator.RenderTemplate(v, requestDetails, hf.state.State)
+		state[k], err = hf.templator.RenderTemplate(v, requestDetails, response, hf.Simulation.Literals, hf.Simulation.Vars, hf.state.State)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +247,7 @@ func (hf *Hoverfly) applyBodyTemplating(requestDetails *models.RequestDetails, r
 		}
 	}
 
-	return hf.templator.RenderTemplate(template, requestDetails, hf.state.State)
+	return hf.templator.RenderTemplate(template, requestDetails, response, hf.Simulation.Literals, hf.Simulation.Vars, hf.state.State)
 }
 
 func (hf *Hoverfly) applyHeadersTemplating(requestDetails *models.RequestDetails, response *models.ResponseDetails, cachedResponse *models.CachedResponse) (map[string][]string, error) {
@@ -275,7 +282,7 @@ func (hf *Hoverfly) applyHeadersTemplating(requestDetails *models.RequestDetails
 	for k, v := range headersTemplates {
 		header = make([]string, len(v))
 		for i, h := range v {
-			header[i], err = hf.templator.RenderTemplate(h, requestDetails, hf.state.State)
+			header[i], err = hf.templator.RenderTemplate(h, requestDetails, response, hf.Simulation.Literals, hf.Simulation.Vars, hf.state.State)
 
 			if err != nil {
 				return nil, err
@@ -310,6 +317,24 @@ func (hf *Hoverfly) Save(request *models.RequestDetails, response *models.Respon
 				Value:   request.Body,
 			},
 		}
+	} else if contentType == "form" {
+		if len(request.FormData) > 0 {
+			form := make(map[string][]models.RequestFieldMatchers)
+			for formKey, formValue := range request.FormData {
+				form[formKey] = []models.RequestFieldMatchers{
+					{
+						Matcher: matchers.Exact,
+						Value:   formValue[0],
+					},
+				}
+			}
+			body = []models.RequestFieldMatchers{
+				{
+					Matcher: "form",
+					Value:   form,
+				},
+			}
+		}
 	}
 
 	var headers map[string][]string
@@ -331,13 +356,8 @@ func (hf *Hoverfly) Save(request *models.RequestDetails, response *models.Respon
 	var requestHeaders map[string][]models.RequestFieldMatchers
 	if len(headers) > 0 {
 		requestHeaders = map[string][]models.RequestFieldMatchers{}
-		for headerKey, headerValues := range headers {
-			requestHeaders[headerKey] = []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   strings.Join(headerValues, ";"),
-				},
-			}
+		for key, values := range headers {
+			requestHeaders[key] = getRequestMatcherForMultipleValues(values)
 		}
 	}
 
@@ -345,12 +365,7 @@ func (hf *Hoverfly) Save(request *models.RequestDetails, response *models.Respon
 	if len(request.Query) > 0 {
 		queries = &models.QueryRequestFieldMatchers{}
 		for key, values := range request.Query {
-			queries.Add(key, []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   strings.Join(values, ";"),
-				},
-			})
+			queries.Add(key, getRequestMatcherForMultipleValues(values))
 		}
 	}
 
@@ -394,6 +409,10 @@ func (hf *Hoverfly) Save(request *models.RequestDetails, response *models.Respon
 		hf.Simulation.AddPair(&pair)
 	}
 
+	if hf.Cfg.GetMode() == modes.Spy {
+		_, _ = hf.CacheMatcher.SaveRequestMatcherResponsePair(*request, &pair, nil)
+	}
+
 	return nil
 }
 
@@ -403,4 +422,22 @@ func (hf *Hoverfly) ApplyMiddleware(pair models.RequestResponsePair) (models.Req
 	}
 
 	return pair, nil
+}
+
+func getRequestMatcherForMultipleValues(values []string) []models.RequestFieldMatchers {
+	var matcher string
+	var value interface{}
+	if len(values) > 1 {
+		matcher = matchers.Array
+		value = values
+	} else {
+		matcher = matchers.Exact
+		value = strings.Join(values, ";")
+	}
+	return []models.RequestFieldMatchers{
+		{
+			Matcher: matcher,
+			Value:   value,
+		},
+	}
 }

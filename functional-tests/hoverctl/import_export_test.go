@@ -27,6 +27,7 @@ var _ = Describe("When I use hoverctl", func() {
 			{
 				"data": {
 					"pairs": [{
+						"labels": ["create", "bookings"],
 						"response": {
 							"status": 201,
 							"body": "",
@@ -83,7 +84,7 @@ var _ = Describe("When I use hoverctl", func() {
 					}
 				},
 				"meta": {
-					"schemaVersion": "v5.1",
+					"schemaVersion": "v5.2",
 					"hoverflyVersion": "v0.9.2",
 					"timeExported": "2016-11-10T12:27:46Z"
 				}
@@ -93,6 +94,7 @@ var _ = Describe("When I use hoverctl", func() {
 			{
 				"data": {
 					"pairs": [{
+						"labels": ["create", "bookings"],
 						"response": {
 							"status": 201,
 							"body": "",
@@ -178,15 +180,15 @@ var _ = Describe("When I use hoverctl", func() {
 					}
 				},
 				"meta": {
-					"schemaVersion": "v5.1",
+					"schemaVersion": "v5.2",
 					"hoverflyVersion": "v0.9.2",
 					"timeExported": "2016-11-10T12:27:46Z"
 				}
 			}`
 
-		hoverflySimulation = `"pairs":[{"request":{"path":[{"matcher":"exact","value":"/api/bookings"}],"method":[{"matcher":"exact","value":"POST"}],"destination":[{"matcher":"exact","value":"www.my-test.com"}],"scheme":[{"matcher":"exact","value":"http"}],"body":[{"matcher":"exact","value":"{\"flightId\": \"1\"}"}],"headers":{"Content-Type":[{"matcher":"exact","value":"application/json"}]}},"response":{"status":201,"body":"","encodedBody":false,"headers":{"Location":["http://localhost/api/bookings/1"]},"templated":false}}],"globalActions":{"delays":[],"delaysLogNormal":[]}}`
+		hoverflySimulation = `"pairs":[{"labels":["create","bookings"],"request":{"path":[{"matcher":"exact","value":"/api/bookings"}],"method":[{"matcher":"exact","value":"POST"}],"destination":[{"matcher":"exact","value":"www.my-test.com"}],"scheme":[{"matcher":"exact","value":"http"}],"body":[{"matcher":"exact","value":"{\"flightId\": \"1\"}"}],"headers":{"Content-Type":[{"matcher":"exact","value":"application/json"}]}},"response":{"status":201,"body":"","encodedBody":false,"headers":{"Location":["http://localhost/api/bookings/1"]},"templated":false}}],"globalActions":{"delays":[],"delaysLogNormal":[]}}`
 
-		hoverflyMeta = `"meta":{"schemaVersion":"v5.1","hoverflyVersion":"v\d+.\d+.\d+(-rc.\d)*","timeExported":`
+		hoverflyMeta = `"meta":{"schemaVersion":"v5.3","hoverflyVersion":"v\d+.\d+.\d+(-rc.\d)*","timeExported":`
 	)
 
 	Describe("with a running hoverfly", func() {
@@ -225,13 +227,13 @@ var _ = Describe("When I use hoverctl", func() {
 				},
 				"response": {
 					"status": 200,
-					"bodyFile": "`+bodyFileName+`"
+					"bodyFile": "` + bodyFileName + `"
 				}
 			}
 		]
 	},
 	"meta": {
-		"schemaVersion": "v5.1"
+		"schemaVersion": "v5.2"
 	}
 }`)
 				// remove bodyFile to be restored by export command later
@@ -274,14 +276,14 @@ var _ = Describe("When I use hoverctl", func() {
 				},
 				"response": {
 					"status": 200,
-					"bodyFile": "`+bodyFileName+`",
+					"bodyFile": "` + bodyFileName + `",
 					"body": "testing content"
 				}
 			}
 		]
 	},
 	"meta": {
-		"schemaVersion": "v5.1"
+		"schemaVersion": "v5.2"
 	}
 }`)
 				output := functional_tests.Run(hoverctlBinary, "export", fileName)

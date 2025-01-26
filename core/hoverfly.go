@@ -2,11 +2,17 @@ package hoverfly
 
 import (
 	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/SpectoLabs/goproxy"
+	"github.com/SpectoLabs/hoverfly/core/action"
 	"github.com/SpectoLabs/hoverfly/core/authentication/backends"
 	"github.com/SpectoLabs/hoverfly/core/cache"
 	"github.com/SpectoLabs/hoverfly/core/delay"
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/journal"
 	"github.com/SpectoLabs/hoverfly/core/matching"
 	"github.com/SpectoLabs/hoverfly/core/metrics"
@@ -15,10 +21,6 @@ import (
 	"github.com/SpectoLabs/hoverfly/core/state"
 	"github.com/SpectoLabs/hoverfly/core/templating"
 	log "github.com/sirupsen/logrus"
-	"net"
-	"net/http"
-	"sync"
-	"time"
 )
 
 // Hoverfly provides access to hoverfly - updating/starting/stopping proxy, http client and configuration, cache access
@@ -39,31 +41,33 @@ type Hoverfly struct {
 
 	state *state.State
 
-	Simulation    *models.Simulation
-	StoreLogsHook *StoreLogsHook
-	Journal       *journal.Journal
-	templator     *templating.Templator
-
-	responsesDiff map[v2.SimpleRequestDefinitionView][]v2.DiffReport
+	Simulation             *models.Simulation
+	StoreLogsHook          *StoreLogsHook
+	Journal                *journal.Journal
+	templator              *templating.Templator
+	PostServeActionDetails *action.PostServeActionDetails
+	responsesDiff          map[v2.SimpleRequestDefinitionView][]v2.DiffReport
 }
 
 func NewHoverfly() *Hoverfly {
 
 	authBackend := backends.NewCacheBasedAuthBackend(cache.NewInMemoryCache(), cache.NewInMemoryCache())
 
+	newJournal := journal.NewJournal()
 	hoverfly := &Hoverfly{
-		Simulation:     models.NewSimulation(),
-		Authentication: authBackend,
-		Counter:        metrics.NewModeCounter([]string{modes.Simulate, modes.Synthesize, modes.Modify, modes.Capture, modes.Spy, modes.Diff}),
-		StoreLogsHook:  NewStoreLogsHook(),
-		Journal:        journal.NewJournal(),
-		Cfg:            InitSettings(),
-		state:          state.NewState(),
-		templator:      templating.NewTemplator(),
-		responsesDiff:  make(map[v2.SimpleRequestDefinitionView][]v2.DiffReport),
+		Simulation:             models.NewSimulation(),
+		Authentication:         authBackend,
+		Counter:                metrics.NewModeCounter([]string{modes.Simulate, modes.Synthesize, modes.Modify, modes.Capture, modes.Spy, modes.Diff}),
+		StoreLogsHook:          NewStoreLogsHook(),
+		Journal:                newJournal,
+		Cfg:                    InitSettings(),
+		state:                  state.NewState(),
+		templator:              templating.NewEnrichedTemplator(newJournal),
+		responsesDiff:          make(map[v2.SimpleRequestDefinitionView][]v2.DiffReport),
+		PostServeActionDetails: action.NewPostServeActionDetails(),
 	}
 
-	hoverfly.version = "v1.3.3"
+	hoverfly.version = "v1.10.9"
 
 	log.AddHook(hoverfly.StoreLogsHook)
 
@@ -182,16 +186,16 @@ func (hf *Hoverfly) StopProxy() {
 
 // processRequest - processes incoming requests and based on proxy state (record/playback)
 // returns HTTP response.
-func (hf *Hoverfly) processRequest(req *http.Request) *http.Response {
+func (hf *Hoverfly) processRequest(req *http.Request) (*http.Response, chan string) {
 	if hf.Cfg.CORS.Enabled {
 		response := hf.Cfg.CORS.InterceptPreflightRequest(req)
 		if response != nil {
-			return response
+			return response, nil
 		}
 	}
 	requestDetails, err := models.NewRequestDetailsFromHttpRequest(req)
 	if err != nil {
-		return modes.ErrorResponse(req, err, "Could not interpret HTTP request").Response
+		return modes.ErrorResponse(req, err, "Could not interpret HTTP request").Response, nil
 	}
 
 	modeName := hf.Cfg.GetMode()
@@ -205,7 +209,7 @@ func (hf *Hoverfly) processRequest(req *http.Request) *http.Response {
 	// and definitely don't delay people in capture mode
 	// Don't delete the error
 	if err != nil || modeName == modes.Capture {
-		return result.Response
+		return result.Response, nil
 	}
 
 	if result.IsResponseDelayable() {
@@ -216,7 +220,19 @@ func (hf *Hoverfly) processRequest(req *http.Request) *http.Response {
 		hf.applyGlobalDelay(requestDetails)
 	}
 
-	return result.Response
+	if result.PostServeActionInputDetails != nil && result.PostServeActionInputDetails.PostServeAction != "" {
+		if postServeAction, ok := hf.PostServeActionDetails.Actions[result.PostServeActionInputDetails.PostServeAction]; ok {
+			journalIDChannel := make(chan string, 1)
+			go postServeAction.Execute(result.PostServeActionInputDetails.Pair, journalIDChannel, hf.Journal)
+			return result.Response, journalIDChannel
+		} else if hf.PostServeActionDetails.FallbackAction != nil {
+			journalIDChannel := make(chan string, 1)
+			go hf.PostServeActionDetails.FallbackAction.Execute(result.PostServeActionInputDetails.Pair, journalIDChannel, hf.Journal)
+			return result.Response, journalIDChannel
+		}
+	}
+
+	return result.Response, nil
 }
 
 func (hf *Hoverfly) applyResponseDelay(result modes.ProcessResult) {

@@ -19,7 +19,7 @@ import (
 
 	"io"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/dghubble/sling"
 	"github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -121,6 +121,63 @@ func (this Hoverfly) GetMode() *v2.ModeView {
 	Expect(err).To(BeNil())
 
 	return currentState
+}
+
+func (this Hoverfly) GetAllPostServeAction() *v2.PostServeActionDetailsView {
+	PostServeActionDetailsView := &v2.PostServeActionDetailsView{}
+	resp := DoRequest(sling.New().Get(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/post-serve-action", this.adminPort)))
+
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, PostServeActionDetailsView)
+	Expect(err).To(BeNil())
+
+	return PostServeActionDetailsView
+}
+
+func (this Hoverfly) SetLocalPostServeAction(actionName, binary, scriptContent string, delayInMs int) *v2.PostServeActionDetailsView {
+	actionView := v2.ActionView{ActionName: actionName, Binary: binary, DelayInMs: delayInMs, ScriptContent: scriptContent}
+
+	resp := DoRequest(sling.New().Put(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/post-serve-action", this.adminPort)).BodyJSON(actionView))
+
+	PostServeActionDetailsView := &v2.PostServeActionDetailsView{}
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, PostServeActionDetailsView)
+	Expect(err).To(BeNil())
+
+	return PostServeActionDetailsView
+}
+
+func (this Hoverfly) SetRemotePostServeAction(actionName, remote string, delayInMs int) *v2.PostServeActionDetailsView {
+	actionView := v2.ActionView{ActionName: actionName, DelayInMs: delayInMs, Remote: remote}
+
+	resp := DoRequest(sling.New().Put(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/post-serve-action", this.adminPort)).BodyJSON(actionView))
+
+	PostServeActionDetailsView := &v2.PostServeActionDetailsView{}
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, PostServeActionDetailsView)
+	Expect(err).To(BeNil())
+
+	return PostServeActionDetailsView
+}
+
+func (this Hoverfly) DeletePostServeAction(actionName string) *v2.PostServeActionDetailsView {
+
+	resp := DoRequest(sling.New().Delete(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/post-serve-action/%v", this.adminPort, actionName)))
+
+	PostServeActionDetailsView := &v2.PostServeActionDetailsView{}
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, PostServeActionDetailsView)
+	Expect(err).To(BeNil())
+
+	return PostServeActionDetailsView
 }
 
 func (this Hoverfly) SetMode(mode string) {
@@ -542,4 +599,46 @@ func TableToSliceMapStringString(table string) map[string]map[string]string {
 	}
 
 	return results
+}
+
+func (this Hoverfly) GetAllDataSources() *v2.TemplateDataSourceView {
+	templateDataSourceView := &v2.TemplateDataSourceView{}
+	resp := DoRequest(sling.New().Get(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/templating-data-source/csv", this.adminPort)))
+
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, templateDataSourceView)
+	Expect(err).To(BeNil())
+
+	return templateDataSourceView
+}
+
+func (this Hoverfly) SetTemplateDataSource(dataSourceName, content string) *v2.TemplateDataSourceView {
+	csvDataSource := v2.CSVDataSourceView{Data: content, Name: dataSourceName}
+
+	resp := DoRequest(sling.New().Put(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/templating-data-source/csv", this.adminPort)).BodyJSON(csvDataSource))
+
+	templateDataSourceView := &v2.TemplateDataSourceView{}
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, templateDataSourceView)
+	Expect(err).To(BeNil())
+
+	return templateDataSourceView
+}
+
+func (this Hoverfly) DeleteDataSource(name string) *v2.TemplateDataSourceView {
+
+	resp := DoRequest(sling.New().Delete(fmt.Sprintf("http://localhost:%v/api/v2/hoverfly/templating-data-source/csv/%v", this.adminPort, name)))
+
+	templateDataSourceView := &v2.TemplateDataSourceView{}
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).To(BeNil())
+
+	err = json.Unmarshal(body, templateDataSourceView)
+	Expect(err).To(BeNil())
+
+	return templateDataSourceView
 }

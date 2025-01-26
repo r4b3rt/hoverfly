@@ -25,7 +25,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,10 +58,13 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 var importFlags arrayFlags
+var postServeActionFlags arrayFlags
+var templatingDataSourceFlags arrayFlags
 var destinationFlags arrayFlags
 var logOutputFlags arrayFlags
 var responseBodyFilesPath string
 var responseBodyFilesAllowedOriginFlags arrayFlags
+var journalIndexingKeyFlags arrayFlags
 
 const boltBackend = "boltdb"
 const inmemoryBackend = "memory"
@@ -89,8 +95,6 @@ var (
 	isAdmin         = flag.Bool("admin", true, "Supply '-admin=false' to make this non admin user")
 	authEnabled     = flag.Bool("auth", false, "Enable authentication")
 
-	proxyAuthorizationHeader = flag.String("proxy-auth", "proxy-auth", "Switch the Proxy-Authorization header from proxy-auth `Proxy-Authorization` to header-auth `X-HOVERFLY-AUTHORIZATION`. Switching to header-auth will auto enable -https-only")
-
 	generateCA = flag.Bool("generate-ca-cert", false, "Generate CA certificate and private key for MITM")
 	certName   = flag.String("cert-name", "hoverfly.proxy", "Cert name")
 	certOrg    = flag.String("cert-org", "Hoverfly Authority", "Organisation name for new cert")
@@ -101,21 +105,23 @@ var (
 	plainHttpTunneling = flag.Bool("plain-http-tunneling", false, "Use plain http tunneling to host with non-443 port")
 
 	upstreamProxy = flag.String("upstream-proxy", "", "Specify an upstream proxy for hoverfly to route traffic through")
-	httpsOnly     = flag.Bool("https-only", false, "Allow only secure secure requests to be proxied by hoverfly")
 
 	databasePath = flag.String("db-path", "", "A path to a BoltDB file with persisted user and token data for authentication (DEPRECATED)")
 	database     = flag.String("db", inmemoryBackend, "Storage to use - 'boltdb' or 'memory' which will not write anything to disk (DEPRECATED)")
 	disableCache = flag.Bool("disable-cache", false, "Disable the request/response cache (the cache that sits in front of matching)")
 
-	logsFormat = flag.String("logs", "plaintext", "Specify format for logs, options are \"plaintext\" and \"json\"")
-	logsSize   = flag.Int("logs-size", 1000, "Set the amount of logs to be stored in memory")
-	logsFile   = flag.String("logs-file", "hoverfly.log", "Specify log file name for output logs")
-	logNoColor = flag.Bool("log-no-color", false, "Disable colors for logging")
+	logsFormat  = flag.String("logs", "plaintext", "Specify format for logs, options are \"plaintext\" and \"json\"")
+	logsSize    = flag.Int("logs-size", 1000, "Set the amount of logs to be stored in memory")
+	logsFile    = flag.String("logs-file", "hoverfly.log", "Specify log file name for output logs")
+	logNoColor  = flag.Bool("log-no-color", false, "Disable colors for logging")
+	logNoQuotes = flag.Bool("log-no-quotes", false, "Disable quoting and escaping of logged fields")
 
 	journalSize   = flag.Int("journal-size", 1000, "Set the size of request/response journal")
 	cacheSize     = flag.Int("cache-size", 1000, "Set the size of request/response cache")
 	cors          = flag.Bool("cors", false, "Enable CORS support")
 	noImportCheck = flag.Bool("no-import-check", false, "Skip duplicate request check when importing simulations")
+
+	pacFile = flag.String("pac-file", "", "Path to the pac file to be imported on startup")
 
 	clientAuthenticationDestination = flag.String("client-authentication-destination", "", "Regular expression of destination with client authentication")
 	clientAuthenticationClientCert  = flag.String("client-authentication-client-cert", "", "Path to the client certification file used for authentication")
@@ -124,53 +130,53 @@ var (
 )
 
 var CA_CERT = []byte(`-----BEGIN CERTIFICATE-----
-MIIDbTCCAlWgAwIBAgIVAPAvY6MQi4KmJYmPDmnE29y6njABMA0GCSqGSIb3DQEB
+MIIDbTCCAlWgAwIBAgIVAPFUKC/hDKXSN4nF4Gh/fG7Oby4KMA0GCSqGSIb3DQEB
 CwUAMDYxGzAZBgNVBAoTEkhvdmVyZmx5IEF1dGhvcml0eTEXMBUGA1UEAxMOaG92
-ZXJmbHkucHJveHkwHhcNMTIwMzI1MTM0NjI3WhcNMjIwMzIzMTM0NjI3WjA2MRsw
+ZXJmbHkucHJveHkwHhcNMjIwMzI3MjE0OTA4WhcNMzIwMzI0MjE0OTA4WjA2MRsw
 GQYDVQQKExJIb3ZlcmZseSBBdXRob3JpdHkxFzAVBgNVBAMTDmhvdmVyZmx5LnBy
-b3h5MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsw2DShgDHkAugLb2
-efVq5XYPIiiJa1Dj+DPxQEuQDtQYAJPgGm7aCm7YLke0Gm6p2ZJBtLmEEwhwRw50
-f6oeWdd21G2RvnzWLOM8QLehUDtQUxO1pMO4prrP3WmTm/UQr0n50BCC/W/omJIZ
-tdmTN5Z1kHaiYcLeOiHVzzAoVlj45vBS2Tm7guAxWMNAnvzGAif0F0LsTCLIzQBg
-eZ6CQeOe0neS1pCGr4NrxuX6pDu/T/YnS+x6P+g0jUOnlwtQsGPjh1Vw0hhZJe6Z
-/YdnZrIufRaAEufbq8dk/ELZVT4Mi6Gp5uy0gycnWhf1mPhsKpbEOhv1r8tEYQrn
-5u4cHwIDAQABo3IwcDAOBgNVHQ8BAf8EBAMCAqQwEwYDVR0lBAwwCgYIKwYBBQUH
-AwEwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUxTebj9Kv16fuWngIO4zfjddv
-7fUwGQYDVR0RBBIwEIIOaG92ZXJmbHkucHJveHkwDQYJKoZIhvcNAQELBQADggEB
-AKOlihA/DIAc7soiPb8s5eLvY/YTqASgzy3S1oaqEsEFAnNPOu53ePNid6bmKDvD
-hc0E+sphPpcuWyzoSp4Nz5TFl7LTtIzU49mR+/Gn3tDucGLutS0PbdFen7swKTMO
-/HwXy+Bm2a9g4ewgJbfIf4MhgrdX6M4gJqMVL7q/NKeppHlQ4pBYFc+HjrF4V98V
-x/mHLc65qOh7iKPBVY7lSYipnMxRu5N7Q88eaqfaVh44xsIYO83N9Pn1uE9GOUu7
-Eb2Tc6UidvXZMWAfkkrGVyrJGWE4wTAIT/Dz1AKDPuTp16SyljaOZ2YahmFXMp3C
-Fj+GKkpM2WS40fUI9z40WGI=
+b3h5MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6mqE6O8H14tsul0B
+UGhLuxFYdSFsjtWtcR4v5PJDK118pdoYC3hgvejcQHdjzuYfVJybo2UHxhEyomhu
+r3KrpcjC0VnGfeibNXY01JDWMVxC2QgutGZb92/wChMBfOKYq5z4MhK+5gdiBkz2
+C8/1Q724sw14iIcQB+POY6lVBj3YI5Ja+hjSm6SWVvMVRk1uMgx2CcW6zbgErkNg
+xvDnDPHlRl5aIIHNyDMlSczVtq0SlBrTtExmjSg2Edzo1v25DG1LBzV58zYE5/cr
+Yh+Dm1XKB88sSBb8bUoAjZCWsl3Dkn8eR8wOdabZZxU/STP/g9yxTM1fcnc4v4e/
+QF0TnQIDAQABo3IwcDAOBgNVHQ8BAf8EBAMCAqQwEwYDVR0lBAwwCgYIKwYBBQUH
+AwEwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUgrvEDpBhKH6SOUAC2fs8oTri
+5XMwGQYDVR0RBBIwEIIOaG92ZXJmbHkucHJveHkwDQYJKoZIhvcNAQELBQADggEB
+AOXmvQtdsH4kBGAnMI87SlFbAskrbeY/Kqr1PQyDTt2MVj/SjpsVxNEoIsS5ghcI
+EyvhD/3t2q15D3XNc+wixSu8jCTe9N1CGXdiolfZ09SqiBtItvOh9R7pdkCcquh+
+69JJayOMInoSnmaf+ic+gbzLiEgfW+Dv/OR2Bmuelrs1zOnHdXhY45bN6PRQFrWt
++Wkr7OqTfoCAz6NGgSWcKrXymTtErX7ZJGYwSc2+nHQznl7RBdyL2BfQAVWaWmhI
+s+IfxcKlYBr/nKWOkhD81VrNXFEj6R5kEYOdXYe9ovRmQhKWSz4cpCcMqtx1ye7K
+1iBU2wVABfQZhp/3eiIyF9w=
 -----END CERTIFICATE-----`)
 
 var CA_KEY = []byte(`-----BEGIN RSA PRIVATE KEY-----
-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
+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
 -----END RSA PRIVATE KEY-----`)
 
 func init() {
@@ -198,10 +204,13 @@ func main() {
 	hoverfly := hv.NewHoverfly()
 
 	flag.Var(&importFlags, "import", "Import from file or from URL (i.e. '-import my_service.json' or '-import http://mypage.com/service_x.json'")
+	flag.Var(&postServeActionFlags, "post-serve-action", "Set post serve action by passing the action name, binary and the path of the action script and delay in Ms separated by space. (i.e. i.e. '-post-serve-action \"webhook python script.py 2000\"')")
+	flag.Var(&templatingDataSourceFlags, "templating-data-source", "Set template data source (i.e. '-templating-data-source \"<datasource name> <file path>\"')")
 	flag.Var(&destinationFlags, "dest", "Specify which hosts to process (i.e. '-dest fooservice.org -dest barservice.org -dest catservice.org') - other hosts will be ignored will passthrough'")
 	flag.Var(&logOutputFlags, "logs-output", "Specify locations for output logs, options are \"console\" and \"file\" (default \"console\")")
-	flag.StringVar(&responseBodyFilesPath, "response-body-files-path", "", "When a response contains a relative bodyFile, it will be resolved against this path (default is CWD)")
+	flag.StringVar(&responseBodyFilesPath, "response-body-files-path", "", "When a response contains a relative bodyFile, it will be resolved against this absolute path (default is CWD)")
 	flag.Var(&responseBodyFilesAllowedOriginFlags, "response-body-files-allow-origin", "When a response contains a url in bodyFile, it will be loaded only if the origin is allowed")
+	flag.Var(&journalIndexingKeyFlags, "journal-indexing-key", "Key to setup indexing on journal")
 
 	flag.Parse()
 
@@ -211,6 +220,7 @@ func main() {
 		log.SetFormatter(&log.TextFormatter{
 			ForceColors:      true,
 			DisableTimestamp: false,
+			DisableQuote:     *logNoQuotes,
 			FullTimestamp:    true,
 			DisableColors:    *logNoColor,
 		})
@@ -276,6 +286,7 @@ func main() {
 					formatter = &log.TextFormatter{
 						ForceColors:      true,
 						DisableTimestamp: false,
+						DisableQuote:     *logNoQuotes,
 						FullTimestamp:    true,
 						DisableColors:    true,
 					}
@@ -317,7 +328,7 @@ func main() {
 	}
 
 	if *generateCA {
-		tlsc, err := hvc.GenerateAndSave(*certName, *certOrg, 5*365*24*time.Hour)
+		tlsc, err := hvc.GenerateAndSave(*certName, *certOrg, 10*365*24*time.Hour)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error": err.Error(),
@@ -374,7 +385,6 @@ func main() {
 		}).Info("Upstream proxy has been set")
 	}
 
-	cfg.HttpsOnly = *httpsOnly
 	cfg.PlainHttpTunneling = *plainHttpTunneling
 
 	if *cors {
@@ -424,7 +434,24 @@ func main() {
 		cfg.Destination = *destination
 	}
 
-	cfg.ResponsesBodyFilesPath = responseBodyFilesPath
+
+	if len(responseBodyFilesPath) > 0 {
+		// Ensure file path is absolute and exists in the file system
+		if !filepath.IsAbs(responseBodyFilesPath) {
+			log.Fatal("Response body files path should be absolute")
+		}
+		absBasePath, err := filepath.Abs(responseBodyFilesPath)
+		if err != nil {
+			log.Fatal("Invalid response body files path")
+		}
+		if _, err := os.Stat(absBasePath); os.IsNotExist(err) {
+			log.Fatal("Response body files path does not exist")
+		}
+
+		cfg.ResponsesBodyFilesPath = absBasePath
+	}
+
+
 
 	for _, allowedOrigin := range responseBodyFilesAllowedOriginFlags {
 		if !util.IsURL(allowedOrigin) {
@@ -472,13 +499,6 @@ func main() {
 				"cache-size": cfg.CacheSize,
 			}).Fatal("Failed to create cache")
 		}
-	}
-
-	if *proxyAuthorizationHeader == "header-auth" {
-		log.Warnf("Proxy authentication will use `X-HOVERFLY-AUTHORIZATION` instead of `Proxy-Authorization`")
-		cfg.ProxyAuthorizationHeader = "X-HOVERFLY-AUTHORIZATION"
-		log.Warnf("Setting Hoverfly to only proxy HTTPS requests")
-		cfg.HttpsOnly = true
 	}
 
 	authBackend := backends.NewCacheBasedAuthBackend(tokenCache, userCache)
@@ -543,6 +563,93 @@ func main() {
 		}
 	}
 
+	//Note: import post serve actions before importing simulation schema
+	if len(postServeActionFlags) > 0 {
+
+		for _, v := range postServeActionFlags {
+			if v != "" {
+				splitPostServeAction := strings.Split(v, " ")
+				if len(splitPostServeAction) == 4 {
+					delayInMs, err := strconv.Atoi(splitPostServeAction[3])
+					if err != nil {
+						//default to 1000 incase of error
+						delayInMs = 1000
+					}
+
+					if fileContents, err := ioutil.ReadFile(splitPostServeAction[2]); err == nil {
+						err = hoverfly.SetLocalPostServeAction(splitPostServeAction[0], splitPostServeAction[1], string(fileContents), delayInMs)
+						if err != nil {
+							log.WithFields(log.Fields{
+								"error":  err.Error(),
+								"import": v,
+							}).Fatal("Failed to import post serve action")
+						}
+					}
+				} else if len(splitPostServeAction) == 3 {
+					delayInMs, err := strconv.Atoi(splitPostServeAction[2])
+					if err != nil {
+						//default to 1000 incase of error
+						delayInMs = 1000
+					}
+					err = hoverfly.SetRemotePostServeAction(splitPostServeAction[0], splitPostServeAction[1], delayInMs)
+					if err != nil {
+						log.WithFields(log.Fields{
+							"error":  err.Error(),
+							"import": v,
+						}).Fatal("Failed to import post serve action")
+					}
+				} else {
+					log.WithFields(log.Fields{
+						"import": v,
+					}).Fatal("Failed to import post serve action due to invalid input passed")
+				}
+			}
+		}
+	}
+
+	if len(templatingDataSourceFlags) > 0 {
+
+		for _, v := range templatingDataSourceFlags {
+
+			if v != "" {
+
+				splitTemplateDataSource := strings.Split(v, " ")
+				if len(splitTemplateDataSource) == 2 {
+					if fileContents, err := ioutil.ReadFile(splitTemplateDataSource[1]); err == nil {
+						err = hoverfly.SetCsvDataSource(splitTemplateDataSource[0], string(fileContents))
+						if err != nil {
+							log.WithFields(log.Fields{
+								"error":  err.Error(),
+								"import": v,
+							}).Fatal("Failed to import template data source")
+						}
+					}
+
+				} else {
+					log.WithFields(log.Fields{
+						"import": v,
+					}).Fatal("Failed to import template data source due to invalid input passed")
+				}
+			}
+		}
+
+	}
+
+	if len(journalIndexingKeyFlags) > 0 {
+
+		for _, indexKey := range journalIndexingKeyFlags {
+			if indexKey != "" {
+
+				if err = hoverfly.AddJournalIndex(indexKey); err != nil {
+					log.WithFields(log.Fields{
+						"error":  err.Error(),
+						"import": indexKey,
+					}).Fatal("Failed to index journal")
+				}
+			}
+		}
+	}
+
 	// importing stuff
 	if len(importFlags) > 0 {
 		for _, v := range importFlags {
@@ -559,6 +666,7 @@ func main() {
 				}
 			}
 		}
+		hoverfly.CacheMatcher.PreloadCache(hoverfly.Simulation)
 	}
 
 	// start metrics registry flush
@@ -567,6 +675,17 @@ func main() {
 	}
 
 	cfg.Webserver = *webserver
+
+	if *pacFile != "" {
+		pacFileContent, err := ioutil.ReadFile(*pacFile)
+		if err != nil {
+			log.WithFields(log.Fields{"error": err.Error(), "pacFile": *pacFile}).
+				Fatal("Failed to import pac file")
+		}
+
+		log.WithField("pacFile", *pacFile).Infoln("Using provided pac file")
+		hoverfly.SetPACFile(pacFileContent)
+	}
 
 	err = hoverfly.StartProxy()
 	if err != nil {

@@ -5,11 +5,13 @@ import (
 	"compress/gzip"
 	"io/ioutil"
 	"os"
+	"strings"
 	"testing"
 
 	"net/http"
+	"net/url"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/models"
 	. "github.com/SpectoLabs/hoverfly/core/util"
 	. "github.com/onsi/gomega"
@@ -31,6 +33,26 @@ func TestResponseDetails_ConvertToResponseDetailsView_WithPlainTextResponseDetai
 
 	Expect(respView.EncodedBody).To(Equal(false))
 	Expect(respView.Body).To(Equal(body))
+}
+
+func TestRequestDetails_ConvertToRequestDetailsView_WithGzipContentEncodedHeader(t *testing.T) {
+	RegisterTestingT(t)
+
+	originalBody := "hello_world"
+	body := GzipString(originalBody)
+	headers := map[string][]string{"Content-Encoding": {"gzip"}}
+
+	originalRequest := models.RequestDetails{Method: "POST", Headers: headers, Body: body}
+
+	requestView := originalRequest.ConvertToRequestDetailsView()
+
+	Expect(requestView.Headers).To(Equal(headers))
+	Expect(requestView.Body).NotTo(Equal(body))
+	Expect(requestView.Body).NotTo(Equal(originalBody))
+
+	base64EncodedBody := "H4sIAAAAAAAA/w=="
+
+	Expect(*requestView.Body).To(Equal(base64EncodedBody))
 }
 
 func TestResponseDetails_ConvertToResponseDetailsView_WithGzipContentEncodedHeader(t *testing.T) {
@@ -218,15 +240,41 @@ func GzipString(s string) string {
 
 func Test_NewRequestDetailsFromHttpRequest_SortsQueryString(t *testing.T) {
 	RegisterTestingT(t)
-	request, _ := http.NewRequest("GET", "http://test.org/?a=b&a=a", nil)
+	request, _ := http.NewRequest("GET", "http://test.org/?b=a&a=b&a=a", nil)
 	requestDetails, err := models.NewRequestDetailsFromHttpRequest(request)
 	Expect(err).To(BeNil())
 
 	Expect(requestDetails.Query["a"]).To(ContainElement("a"))
 	Expect(requestDetails.Query["a"]).To(ContainElement("b"))
-	Expect(requestDetails.QueryString()).To(Equal("a=a&a=b"))
+	Expect(requestDetails.Query["b"]).To(ContainElement("a"))
+	Expect(requestDetails.QueryString()).To(Equal("a=a&a=b&b=a"))
 }
 
+func Test_NewRequestDetailsFromHttpRequest_ParseCompoundQueryParam(t *testing.T) {
+	RegisterTestingT(t)
+	request, _ := http.NewRequest("GET", "http://test.org/?qq=country=BEL;postalCode=1234;city=SomeCity;street=SomeStreet;houseNumber=25%20a", nil)
+	requestDetails, err := models.NewRequestDetailsFromHttpRequest(request)
+	Expect(err).To(BeNil())
+
+	Expect(requestDetails.Query["qq"]).To(ContainElement("country=BEL;postalCode=1234;city=SomeCity;street=SomeStreet;houseNumber=25 a"))
+	Expect(requestDetails.QueryString()).To(Equal("qq=country=BEL;postalCode=1234;city=SomeCity;street=SomeStreet;houseNumber=25 a"))
+}
+
+func Test_NewRequestDetailsFromHttpRequest_WithFormDataHavingNonEmptyBody(t *testing.T) {
+	RegisterTestingT(t)
+	form := url.Values{}
+	form.Add("key1", "value1")
+	form.Add("key2", "value2")
+	request, _ := http.NewRequest("POST", "http://test.org", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	requestDetails, err := models.NewRequestDetailsFromHttpRequest(request)
+	Expect(err).To(BeNil())
+
+	Expect(requestDetails.FormData).To(HaveLen(2))
+	Expect(requestDetails.FormData["key1"][0]).To(Equal("value1"))
+	Expect(requestDetails.FormData["key2"][0]).To(Equal("value2"))
+	Expect(requestDetails.Body).NotTo(Equal(""))
+}
 func Test_NewRequestDetailsFromHttpRequest_StripsArbitaryGolangColonEscaping(t *testing.T) {
 	RegisterTestingT(t)
 	request, _ := http.NewRequest("GET", "http://test.org/?a=b:c", nil)
@@ -349,6 +397,7 @@ func TestRequestDetailsView_ConvertToRequestDetails(t *testing.T) {
 		Scheme:      StringToPointer("scheme"),
 		Query:       StringToPointer(""),
 		Body:        StringToPointer(""),
+		FormData:    map[string][]string{"user": {"foo"}},
 		Headers:     map[string][]string{"Content-Encoding": {"gzip"}}}
 
 	requestDetails := models.NewRequestDetailsFromRequest(requestDetailsView)

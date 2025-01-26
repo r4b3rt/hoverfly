@@ -30,11 +30,6 @@ func NewProxy(hoverfly *Hoverfly) *goproxy.ProxyHttpServer {
 	// creating proxy
 	proxy := goproxy.NewProxyHttpServer()
 
-	if hoverfly.Cfg.HttpsOnly {
-		log.Info("Disabling HTTP")
-		proxy.DisableNonTls(true)
-	}
-
 	if hoverfly.Cfg.AuthEnabled {
 		log.Info("Enabling proxy authentication")
 		proxyBasicAndBearer(proxy, "hoverfly", func(user, password string) bool {
@@ -64,8 +59,9 @@ func NewProxy(hoverfly *Hoverfly) *goproxy.ProxyHttpServer {
 	proxy.OnRequest(matchesFilter(hoverfly.Cfg.Destination)).DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 			startTime := time.Now()
-			resp := hoverfly.processRequest(r)
-			hoverfly.Journal.NewEntry(r, resp, hoverfly.Cfg.Mode, startTime)
+			resp, journalIDChannel := hoverfly.processRequest(r)
+			id, _ := hoverfly.Journal.NewEntry(r, resp, hoverfly.Cfg.Mode, startTime)
+			sendJournalIDToPostServeAction(journalIDChannel, id)
 			return r, resp
 		})
 
@@ -101,6 +97,13 @@ func NewProxy(hoverfly *Hoverfly) *goproxy.ProxyHttpServer {
 	return proxy
 }
 
+func sendJournalIDToPostServeAction(journalIDChannel chan string, id string) {
+	if journalIDChannel != nil {
+		journalIDChannel <- id
+		close(journalIDChannel)
+	}
+}
+
 // Creates goproxy.ProxyHttpServer and configures it to be used as a webserver for Hoverfly
 // goproxy is given a non proxy handler that uses the Hoverfly request processing
 func NewWebserverProxy(hoverfly *Hoverfly) *goproxy.ProxyHttpServer {
@@ -109,8 +112,9 @@ func NewWebserverProxy(hoverfly *Hoverfly) *goproxy.ProxyHttpServer {
 	proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
 		r.URL.Scheme = "http"
-		resp := hoverfly.processRequest(r)
-		hoverfly.Journal.NewEntry(r, resp, hoverfly.Cfg.Mode, startTime)
+		resp, journalIDChannel := hoverfly.processRequest(r)
+		id, _ := hoverfly.Journal.NewEntry(r, resp, hoverfly.Cfg.Mode, startTime)
+		sendJournalIDToPostServeAction(journalIDChannel, id)
 		body, err := util.GetResponseBody(resp)
 
 		if err != nil {

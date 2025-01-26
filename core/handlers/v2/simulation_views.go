@@ -32,9 +32,9 @@ func NewSimulationViewFromRequestBody(requestBody []byte) (SimulationViewV5, err
 
 	schemaVersion := jsonMap["meta"].(map[string]interface{})["schemaVersion"].(string)
 
-	if schemaVersion == "v5" || schemaVersion == "v5.1" {
+	if strings.HasPrefix(schemaVersion, "v5") {
 
-		err := ValidateSimulation(jsonMap, SimulationViewV5Schema)
+		err := ValidateSimulationSchemaFromFile(jsonMap, SimulationViewV5Schema)
 		if err != nil {
 			return simulationView, errors.New(fmt.Sprintf("Invalid %s simulation: ", schemaVersion) + err.Error())
 		}
@@ -96,6 +96,17 @@ func ValidateSimulation(json, schema map[string]interface{}) error {
 	jsonLoader := gojsonschema.NewGoLoader(json)
 	schemaLoader := gojsonschema.NewGoLoader(schema)
 
+	return validateSimulation(schemaLoader, jsonLoader)
+}
+
+func ValidateSimulationSchemaFromFile(json map[string]interface{}, schema []byte) error {
+	jsonLoader := gojsonschema.NewGoLoader(json)
+	schemaLoader := gojsonschema.NewBytesLoader(schema)
+
+	return validateSimulation(schemaLoader, jsonLoader)
+}
+
+func validateSimulation(schemaLoader, jsonLoader gojsonschema.JSONLoader) error {
 	result, err := gojsonschema.Validate(schemaLoader, jsonLoader)
 	if err != nil {
 		log.Error("Error when validating simulation: " + err.Error())
@@ -130,7 +141,7 @@ type MetaView struct {
 func NewMetaView(version string) *MetaView {
 	return &MetaView{
 		HoverflyVersion: version,
-		SchemaVersion:   "v5.1",
+		SchemaVersion:   "v5.3",
 		TimeExported:    time.Now().Format(time.RFC3339),
 	}
 }
@@ -139,6 +150,8 @@ func BuildSimulationView(
 	pairViews []RequestMatcherResponsePairViewV5,
 	delayView v1.ResponseDelayPayloadView,
 	delayLogNormalView v1.ResponseDelayLogNormalPayloadView,
+	variables []GlobalVariableViewV5,
+	literals []GlobalLiteralViewV5,
 	version string,
 ) SimulationViewV5 {
 	return SimulationViewV5{
@@ -148,13 +161,13 @@ func BuildSimulationView(
 				Delays:          delayView.Data,
 				DelaysLogNormal: delayLogNormalView.Data,
 			},
+			GlobalVariables: variables,
+			GlobalLiterals:  literals,
 		},
 		*NewMetaView(version),
 	}
 }
 
-const deprecatedQueryMessage = "Usage of deprecated field `deprecatedQuery` on data.pairs[%v].request.deprecatedQuery, please update your simulation to use `query` field"
-const deprecatedQueryDocs = "https://hoverfly.readthedocs.io/en/latest/pages/troubleshooting/troubleshooting.html#why-does-my-simulation-have-a-deprecatedquery-field"
 const ContentLengthAndTransferEncodingMessage = "Response contains both Content-Length and Transfer-Encoding headers on data.pairs[%v].response, please remove one of these headers"
 const BodyAndBodyFileMessage = "Response contains both `body` and `bodyFile` in data.pairs[%v].response, please remove one of them otherwise `body` is used if non empty"
 const ContentLengthMismatchMessage = "Response contains incorrect Content-Length header on data.pairs[%v].response, please correct or remove header"
@@ -176,14 +189,6 @@ func (s *SimulationImportResult) SetError(err error) {
 
 func (s SimulationImportResult) GetError() error {
 	return s.Err
-}
-
-func (s *SimulationImportResult) AddDeprecatedQueryWarning(requestNumber int) {
-	warning := fmt.Sprintf("WARNING: %s", fmt.Sprintf(deprecatedQueryMessage, requestNumber))
-	if s.WarningMessages == nil {
-		s.WarningMessages = []SimulationImportWarning{}
-	}
-	s.WarningMessages = append(s.WarningMessages, SimulationImportWarning{Message: warning, DocsLink: deprecatedQueryDocs})
 }
 
 func (s *SimulationImportResult) AddContentLengthAndTransferEncodingWarning(requestNumber int) {

@@ -472,7 +472,7 @@ GET /api/v2/hoverfly/middleware
 """""""""""""""""""""""""""""""
 
 Gets the middleware settings for the running instance of Hoverfly. This
-could be either an executable binary, a script that can be executed with 
+could be either an executable binary, a script that can be executed with
 a binary or a URL to remote middleware.
 
 **Example response body**
@@ -502,6 +502,53 @@ and the binary to execute it or the URL to a remote middleware.
         "remote": ""
     }
 
+
+-------------------------------------------------------------------------------------------------------------
+
+GET /api/v2/hoverfly/post-serve-action
+"""""""""""""""""""""""""""""""""""""""
+
+Get all the post serve actions for the running instance of Hoverfly.
+It will return list of scripts that can be executed with a binary after response is served back.
+
+**Example response body**
+::
+
+    {
+        "actions": [
+            {
+                "actionName": "<post serve action name>",
+                "binary": "python",
+                "script": "#python code goes here",
+                "delayInMs":"#delay(in ms) post which script will be executed after serving the request",
+                "remote": "<url of the remote action webserver if set>"
+            }
+        ]
+    }
+
+
+PUT /api/v2/hoverfly/post-serve-action
+"""""""""""""""""""""""""""""""""""""""
+
+Sets new post serve action, overwriting the existing post serve action for the running instance of Hoverfly.
+The post serve action being set is an executable binary located on the host. We can set multiple post serve actions.
+It returns all the post serve actions.
+
+**Example request body**
+::
+
+    {
+        "actionName": "#post serve action names goes here",
+        "binary": "python",
+        "script": "#python code goes here",
+        "delayInMs": "#delay(in ms) post which script will be executed after serving the request"
+        "remote": "<url of the remote action webserver>"
+    }
+
+DELETE /api/v2/hoverfly/post-serve-action/:actionName
+""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+Delete a particular post serve action for the running instance of Hoverfly. It returns all the remaining post serve actions.
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -632,7 +679,7 @@ Sets the PAC file for Hoverfly.
 
 
 DELETE /api/v2/hoverfly/pac
-""""""""""""""""""""""""
+"""""""""""""""""""""""""""
 
 Unsets the PAC file configured for Hoverfly.
 
@@ -640,7 +687,7 @@ Unsets the PAC file configured for Hoverfly.
 
 
 GET /api/v2/cache
-""""""""""""""""""""
+"""""""""""""""""
 Gets the requests and responses stored in the cache.
 
 **Example response body**
@@ -712,7 +759,7 @@ Running hoverfly with ``-logs-size=0`` disables logging and 500 response is retu
                 "level": "info",
                 "msg": "serving proxy",
                 "time": "2017-03-13T12:22:39Z"
-            },  
+            },
             {
                 "destination": ".",
                 "level": "info",
@@ -720,7 +767,7 @@ Running hoverfly with ``-logs-size=0`` disables logging and 500 response is retu
                 "msg": "current proxy configuration",
                 "port": "8500",
                 "time": "2017-03-13T12:22:39Z"
-            },  
+            },
             {
                 "destination": ".",
                 "Mode": "simulate",
@@ -728,7 +775,7 @@ Running hoverfly with ``-logs-size=0`` disables logging and 500 response is retu
                 "level": "info",
                 "msg": "Proxy prepared...",
                 "time": "2017-03-13T12:22:39Z"
-            },  
+            },
         ]
     }
 
@@ -740,7 +787,7 @@ GET /api/v2/journal
 """""""""""""""""""
 Gets the journal from Hoverfly. Each journal entry contains both the request Hoverfly received and the response
 it served along with the mode Hoverfly was in, the time the request was received and the time taken for Hoverfly
-to process the request. Latency is in milliseconds.
+to process the request. Latency is in milliseconds.  It also returns its corresponding indexes.
 
 It supports paging using the ``offset`` and ``limit`` query parameters.
 
@@ -751,6 +798,8 @@ It supports multiple parameters to limit the amount of entries returned:
 - ``to`` - Timestamp to start filtering to;
 - ``from`` - Timestamp to start filtering from;
 - ``sort`` - Sort results in format "field:order". Supported fields: ``timestarted`` and ``latency``. Supported orders: ``asc`` and ``desc``.
+
+It also returns post serve action details containing action name, when it was invoked, completed, correlation ID and HTTP status.
 
 Running hoverfly with ``-journal-size=0`` disables logging and 500 response is returned with body:
 
@@ -795,11 +844,29 @@ Running hoverfly with ``-journal-size=0`` disables logging and 500 response is r
             ]
           }
         },
+        "postServeAction": {
+            "name": "test-callback",
+            "invoked": "2024-04-09T00:56:11.606+00:30",
+            "completed": "2024-04-09T00:56:12.619+00:30",
+            "correlationId": "9a935ec9-fe65-40d8-9ae6-d9d43dabf679",
+            "status": 200
+        }
+        "id":"mOBdPSIIBbjNqBvpZ8H-",
         "mode": "simulate",
         "timeStarted": "2017-07-17T10:41:59.168+01:00",
         "latency": 0.61334
       }
     ],
+    "indexes": [
+    {
+      "name": "Request.destination",
+      "entries": [
+        {
+          "key": "hoverfly.io",
+          "journalEntryId": "mOBdPSIIBbjNqBvpZ8H-"
+        }
+      ]
+    }],
     "offset": 0,
     "limit": 25,
     "total": 1
@@ -832,6 +899,69 @@ Filter and search entries stored in the journal.
         }
     }
 
+-------------------------------------------------------------------------------------------------------------
+
+
+GET /api/v2/journal/index
+"""""""""""""""""""""""""
+Gets all the journal indexes from Hoverfly. Each Index contains key, extracted value for that particular key
+and journal index id to which it is pointing to.
+
+
+**Example response body**
+::
+    [
+      {
+        "name": "Request.QueryParam.id",
+        "entries": [
+          {
+            "key": "100",
+            "journalEntryId": "ZCyiQtamEtwi-NNU9RT1"
+          },
+          {
+            "key": "101",
+            "journalEntryId": "YFU5dm2uDZ4UStX3ldkX"
+          }
+        ]
+      },
+      {
+        "name": "Request.QueryParam.name",
+        "entries": [
+          {
+            "key": "Test1",
+            "journalEntryId": "ZCyiQtamEtwi-NNU9RT1"
+          },
+          {
+            "key": "Test2",
+            "journalEntryId": "YFU5dm2uDZ4UStX3ldkX"
+          }
+        ]
+      },
+    ]
+
+
+-------------------------------------------------------------------------------------------------------------
+
+
+POST /api/v2/journal/index
+""""""""""""""""""""""""""
+
+Allow a user to set journal indexing by specifying index key/name. Index name is "request-query" shares the same syntax as the one for templating, such as Request.QueryParam.myParam or Request.Header.X-Header-Id.[1]
+It’s used for extracting the data from the journal entry to use as a key for that entry.  It returns all the journal indexes that have been set.  It indexes pre-existing or new journal entries.
+
+**Example request body**
+::
+    {
+        "name":"Request.QueryParam.myParam"
+    }
+
+-------------------------------------------------------------------------------------------------------------
+
+
+DELETE /api/v2/journal/index/:index-name
+""""""""""""""""""""""""""""""""""""""""
+
+Deletes journal index from hoverfly.
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -873,7 +1003,7 @@ Deletes all state from Hoverfly and then sets the state to match the state in th
 
 PATCH /api/v2/state
 """""""""""""""""""
-Updates state in Hoverfly. Will update each state key referenced in the request body. 
+Updates state in Hoverfly. Will update each state key referenced in the request body.
 
 **Example request body**
 ::
@@ -925,10 +1055,72 @@ Gets all reports containing response differences from Hoverfly. The diffs are re
 
 -------------------------------------------------------------------------------------------------------------
 
+
+POST /api/v2/diff
+"""""""""""""""""
+Gets reports containing response differences from Hoverfly filtered on basis of excluded criteria provided(i.e. headers and response keys in jsonpath format to exclude). The diffs are in same format as we receive in GET request.
+
+**Example request body**
+::
+  {
+    "excludedHeaders":["Date"],
+    "excludedResponseFields":["$.time"]
+  }
+
+
+-------------------------------------------------------------------------------------------------------------
+
 DELETE /api/v2/diff
-""""""""""""""""""""
+"""""""""""""""""""
 Deletes all reports containing differences from Hoverfly.
 
+-------------------------------------------------------------------------------------------------------------
+
+
+GET /api/v2/hoverfly/templating-data-source/csv
+"""""""""""""""""""""""""""""""""""""""""""""""
+
+Get all the templating data source for the running instance of Hoverfly.
+It will return list of data sources that has been uploaded by the user to be queried by the template function in the response.
+
+**Example response body**
+::
+
+    {
+      "csvDataSources": [
+        {
+          "name": "student-marks",
+          "data": "id,name,marks\n1,Test1,300\n2,Test2,600\n"
+        }
+      ]
+    }
+
+
+PUT /api/v2/hoverfly/templating-data-source/csv
+"""""""""""""""""""""""""""""""""""""""""""""""
+
+Sets new template data source, overwriting the existing template data source for the running instance of Hoverfly.
+The template CSV data source being set is being queried via template function to generate the response.
+This API call returns back all the templating data source that have been set.
+
+**Example request body**
+::
+
+    {
+        "name":"student-marks",
+        "data":"id,name,marks\n1,Test1,55\n2,Test2,56\n*,Dummy,ABSENT"
+    }
+
+DELETE /api/v2/hoverfly/templating-data-source/csv/:data-source-name
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+Delete a particular data source for the running instance of Hoverfly. It returns all the remaining template data sources.
+
+-------------------------------------------------------------------------------------------------------------
+
+
+
 DELETE /api/v2/shutdown
-""""""""""""""""""""
+"""""""""""""""""""""""
 Shuts down the hoverfly instance.
+

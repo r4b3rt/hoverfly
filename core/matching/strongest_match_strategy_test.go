@@ -3,7 +3,7 @@ package matching_test
 import (
 	"testing"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/matching"
 	"github.com/SpectoLabs/hoverfly/core/matching/matchers"
 	"github.com/SpectoLabs/hoverfly/core/models"
@@ -18,7 +18,9 @@ func Test_ClosestRequestMatcherRequestMatcher_EmptyRequestMatchersShouldMatchOnA
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
 		RequestMatcher: models.RequestMatcher{},
-		Response:       testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -48,7 +50,9 @@ func Test_ClosestRequestMatcherRequestMatcher_RequestMatchersShouldMatchOnBody(t
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -58,6 +62,42 @@ func Test_ClosestRequestMatcherRequestMatcher_RequestMatchersShouldMatchOnBody(t
 	Expect(result.Error).To(BeNil())
 
 	Expect(result.Pair.Response.Body).To(Equal("request matched"))
+}
+
+func Test_StrongestMatch_RequestMatchersShouldMatchOnBodyPrioritizingNotNilMatcher(t *testing.T) {
+	RegisterTestingT(t)
+
+	simulation := models.NewSimulation()
+
+	simulation.AddPair(&models.RequestMatcherResponsePair{
+		RequestMatcher: models.RequestMatcher{
+			Body: []models.RequestFieldMatchers{
+				{
+					Matcher: matchers.JsonPartial,
+					Value:   `{"bot": true}`,
+				},
+			},
+		},
+		Response: models.ResponseDetails{
+			Body: "json partial body matched",
+		},
+	})
+
+	// if both matchers have the same score, this one will be picked because it's the most recent one.
+	simulation.AddPair(&models.RequestMatcherResponsePair{
+		RequestMatcher: models.RequestMatcher{},
+		Response: models.ResponseDetails{
+			Body: "absent body matched",
+		},
+	})
+
+	r := models.RequestDetails{
+		Body: `{"bot": true, "name": "chatty"}`,
+	}
+	result := matching.MatchingStrategyRunner(r, false, simulation, &state.State{State: map[string]string{}}, &matching.StrongestMatchStrategy{})
+	Expect(result.Error).To(BeNil())
+
+	Expect(result.Pair.Response.Body).To(Equal("json partial body matched"))
 }
 
 func Test_ClosestRequestMatcherRequestMatcher_ReturnResponseWhenAllHeadersMatch(t *testing.T) {
@@ -84,7 +124,9 @@ func Test_ClosestRequestMatcherRequestMatcher_ReturnResponseWhenAllHeadersMatch(
 		RequestMatcher: models.RequestMatcher{
 			Headers: headers,
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -125,7 +167,9 @@ func Test_ClosestRequestMatcherRequestMatcher_ReturnNilWhenOneHeaderNotPresentIn
 		RequestMatcher: models.RequestMatcher{
 			Headers: headers,
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -165,7 +209,9 @@ func Test_ClosestRequestMatcherRequestMatcher_ReturnNilWhenOneHeaderValueDiffere
 		RequestMatcher: models.RequestMatcher{
 			Headers: headers,
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -205,7 +251,9 @@ func Test_ClosestRequestMatcherRequestMatcher_ReturnResponseWithMultiValuedHeade
 		RequestMatcher: models.RequestMatcher{
 			Headers: headers,
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -245,7 +293,9 @@ func Test_ClosestRequestMatcherRequestMatcher_ReturnNilWithDifferentMultiValuedH
 		RequestMatcher: models.RequestMatcher{
 			Headers: headers,
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -303,14 +353,10 @@ func Test_ClosestRequestMatcherRequestMatcher_EndpointMatchWithHeaders(t *testin
 					Value:   "GET",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "q=test",
-				},
-			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -371,14 +417,10 @@ func Test_ClosestRequestMatcherRequestMatcher_EndpointMismatchWithHeadersReturns
 					Value:   "GET",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "q=test",
-				},
-			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -424,14 +466,10 @@ func Test_ClosestRequestMatcherRequestMatcher_AbleToMatchAnEmptyPathInAReasonabl
 					Value:   "GET",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "q=test",
-				},
-			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -473,7 +511,9 @@ func Test_ClosestRequestMatcherRequestMatcher_RequestMatchersCanUseGlobsAndBeMat
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	request := models.RequestDetails{
@@ -502,7 +542,9 @@ func Test_ClosestRequestMatcherRequestMatcher_RequestMatchersCanUseGlobsOnScheme
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	request := models.RequestDetails{
@@ -534,7 +576,9 @@ func Test_ClosestRequestMatcherRequestMatcher_RequestMatchersCanUseGlobsOnHeader
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	request := models.RequestDetails{
@@ -807,12 +851,6 @@ func Test__NotBeCacheableIfMatchedOnEverythingApartFromHeadersAtLeastOnce(t *tes
 					Value:   "http",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "foo=bar",
-				},
-			},
 			Path: []models.RequestFieldMatchers{
 				{
 					Matcher: matchers.Exact,
@@ -834,7 +872,9 @@ func Test__NotBeCacheableIfMatchedOnEverythingApartFromHeadersAtLeastOnce(t *tes
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
@@ -846,7 +886,9 @@ func Test__NotBeCacheableIfMatchedOnEverythingApartFromHeadersAtLeastOnce(t *tes
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -894,10 +936,12 @@ func Test__ShouldBeCacheableIfMatchedOnEverythingApartFromHeadersZeroTimes(t *te
 					Value:   "http",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "?foo=bar",
+			Query: &models.QueryRequestFieldMatchers{
+				"foo": []models.RequestFieldMatchers{
+					{
+						Matcher: matchers.Exact,
+						Value:   "bar",
+					},
 				},
 			},
 			Path: []models.RequestFieldMatchers{
@@ -921,7 +965,9 @@ func Test__ShouldBeCacheableIfMatchedOnEverythingApartFromHeadersZeroTimes(t *te
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
@@ -933,7 +979,9 @@ func Test__ShouldBeCacheableIfMatchedOnEverythingApartFromHeadersZeroTimes(t *te
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -1271,13 +1319,14 @@ func Test_ShouldReturnFieldsMissedInClosestMiss(t *testing.T) {
 					Value:   "hit",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "miss",
+			Query: &models.QueryRequestFieldMatchers{
+				"foo": []models.RequestFieldMatchers{
+					{
+						Matcher: matchers.Exact,
+						Value:   "bar",
+					},
 				},
 			},
-
 			Scheme: []models.RequestFieldMatchers{
 				{
 					Matcher: matchers.Exact,
@@ -1312,7 +1361,7 @@ func Test_ShouldReturnFieldsMissedInClosestMiss(t *testing.T) {
 	Expect(result.Pair).To(BeNil())
 	Expect(result.Error.ClosestMiss).ToNot(BeNil())
 	//TODO: Scheme matching?
-	Expect(result.Error.ClosestMiss.MissedFields).To(ConsistOf(`body`, `path`, `query`))
+	Expect(result.Error.ClosestMiss.MissedFields).To(ConsistOf(`body`, `path`, `queries`))
 }
 
 func Test_ShouldReturnFieldsMissedInClosestMissAgain(t *testing.T) {
@@ -1344,12 +1393,6 @@ func Test_ShouldReturnFieldsMissedInClosestMissAgain(t *testing.T) {
 				{
 					Matcher: matchers.Exact,
 					Value:   "miss",
-				},
-			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "hit=",
 				},
 			},
 			Scheme: []models.RequestFieldMatchers{
@@ -1401,7 +1444,8 @@ func Test_ShouldReturnMessageForClosestMiss(t *testing.T) {
 			Query: map[string][]string{
 				"query": {""},
 			},
-			Body: "body",
+			Body:     "body",
+			FormData: map[string][]string{"email": {"foo"}},
 			Headers: map[string][]string{
 				"miss": {"miss"},
 			},
@@ -1485,6 +1529,11 @@ The following request was made, but was not matched by Hoverfly:
         ]
     },
     "Body": "body",
+    "FormData": {
+        "email": [
+            "foo"
+        ]
+    },
     "Headers": {
         "miss": [
             "miss"
@@ -1594,12 +1643,6 @@ func Test_StrongestMatch_ShouldNotBeCacheableIfMatchedOnEverythingApartFromHeade
 					Value:   "http",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "foo=bar",
-				},
-			},
 			Path: []models.RequestFieldMatchers{
 				{
 					Matcher: matchers.Exact,
@@ -1621,7 +1664,9 @@ func Test_StrongestMatch_ShouldNotBeCacheableIfMatchedOnEverythingApartFromHeade
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
@@ -1633,7 +1678,9 @@ func Test_StrongestMatch_ShouldNotBeCacheableIfMatchedOnEverythingApartFromHeade
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -1681,10 +1728,12 @@ func Test_StrongestMatch__ShouldBeCacheableIfMatchedOnEverythingApartFromHeaders
 					Value:   "http",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "?foo=bar",
+			Query: &models.QueryRequestFieldMatchers{
+				"foo": []models.RequestFieldMatchers{
+					{
+						Matcher: matchers.Exact,
+						Value:   "bar",
+					},
 				},
 			},
 			Path: []models.RequestFieldMatchers{
@@ -1708,7 +1757,9 @@ func Test_StrongestMatch__ShouldBeCacheableIfMatchedOnEverythingApartFromHeaders
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
@@ -1720,7 +1771,9 @@ func Test_StrongestMatch__ShouldBeCacheableIfMatchedOnEverythingApartFromHeaders
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -1828,7 +1881,9 @@ func Test_MatchingStrategyRunner_RequestMatchersShouldMatchOnStateAndNotBeCachea
 		RequestMatcher: models.RequestMatcher{
 			RequiresState: map[string]string{"key1": "value1", "key2": "value2"},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -1872,12 +1927,6 @@ func Test_StrongestMatch_ShouldNotBeCacheableIfMatchedOnEverythingApartFromState
 					Value:   "http",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "foo=bar",
-				},
-			},
 			Path: []models.RequestFieldMatchers{
 				{
 					Matcher: matchers.Exact,
@@ -1894,7 +1943,9 @@ func Test_StrongestMatch_ShouldNotBeCacheableIfMatchedOnEverythingApartFromState
 				"foo": "bar",
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
@@ -1906,7 +1957,9 @@ func Test_StrongestMatch_ShouldNotBeCacheableIfMatchedOnEverythingApartFromState
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{
@@ -1951,10 +2004,12 @@ func Test_StrongestMatch__ShouldBeCacheableIfMatchedOnEverythingApartFromStateZe
 					Value:   "http",
 				},
 			},
-			DeprecatedQuery: []models.RequestFieldMatchers{
-				{
-					Matcher: matchers.Exact,
-					Value:   "?foo=bar",
+			Query: &models.QueryRequestFieldMatchers{
+				"foo": []models.RequestFieldMatchers{
+					{
+						Matcher: matchers.Exact,
+						Value:   "bar",
+					},
 				},
 			},
 			Path: []models.RequestFieldMatchers{
@@ -1973,7 +2028,9 @@ func Test_StrongestMatch__ShouldBeCacheableIfMatchedOnEverythingApartFromStateZe
 				"foo": "bar",
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	simulation.AddPair(&models.RequestMatcherResponsePair{
@@ -1985,7 +2042,9 @@ func Test_StrongestMatch__ShouldBeCacheableIfMatchedOnEverythingApartFromStateZe
 				},
 			},
 		},
-		Response: testResponse,
+		Response: models.ResponseDetails{
+			Body: "request matched",
+		},
 	})
 
 	r := models.RequestDetails{

@@ -52,7 +52,24 @@ This is the JSON schema for v5 Hoverfly simulations.
           "matcher": {
             "type": "string"
           },
-          "value": {}
+          "value": {},
+          "config": {
+            "properties": {
+              "ignoreUnknown": {
+                "type": "boolean"
+              },
+              "ignoreOrder": {
+                "type": "boolean"
+              },
+              "ignoreOccurrences": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "doMatch": {
+            "$ref": "#/definitions/field-matchers"
+          }
         },
         "type": "object"
       },
@@ -63,6 +80,16 @@ This is the JSON schema for v5 Hoverfly simulations.
           },
           "type": "array"
         },
+        "type": "object"
+      },
+      "literals": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": ["name", "value"],
         "type": "object"
       },
       "meta": {
@@ -143,6 +170,12 @@ This is the JSON schema for v5 Hoverfly simulations.
       },
       "request-response-pair": {
         "properties": {
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "request": {
             "$ref": "#/definitions/request"
           },
@@ -186,6 +219,9 @@ This is the JSON schema for v5 Hoverfly simulations.
               }
             }
           },
+          "postServeAction": {
+            "type": "string"
+          },
           "removesState": {
             "type": "array"
           },
@@ -204,6 +240,21 @@ This is the JSON schema for v5 Hoverfly simulations.
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "variables": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "function": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "array"
+          }
+        },
+        "required": ["name", "function"],
         "type": "object"
       }
     },
@@ -228,9 +279,21 @@ This is the JSON schema for v5 Hoverfly simulations.
             },
             "type": "object"
           },
+          "literals": {
+            "items": {
+              "$ref": "#/definitions/literals"
+            },
+            "type": "array"
+          },
           "pairs": {
             "items": {
               "$ref": "#/definitions/request-response-pair"
+            },
+            "type": "array"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/definitions/variables"
             },
             "type": "array"
           }

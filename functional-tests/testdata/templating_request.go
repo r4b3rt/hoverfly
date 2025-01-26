@@ -40,6 +40,38 @@ var TemplatingRequest = `{
 					"path": [
 						{
 							"matcher": "exact",
+							"value": "/Request.Body_jsonpath_with_each"
+						}
+					]
+				},
+				"response": {
+					"status": 200,
+					"body": "{{#each (Request.Body 'jsonpath' '$.currencies')}} {{@index}} : {{this}} \n {{/each}}",
+					"encodedBody": false,
+					"templated": true
+				}
+			},
+			{
+				"request": {
+					"path": [
+						{
+							"matcher": "glob",
+							"value": "/Request.Path_with_each/*"
+						}
+					]
+				},
+				"response": {
+					"status": 200,
+					"body": "{{#each Vars.splitRequestPath}}{{@index}}:{{this}} {{/each}}",
+					"encodedBody": false,
+					"templated": true
+				}
+			},
+			{
+				"request": {
+					"path": [
+						{
+							"matcher": "exact",
 							"value": "/Request.Body_xpath"
 						}
 					]
@@ -146,13 +178,95 @@ var TemplatingRequest = `{
 					"encodedBody": false,
 					"templated": true
 				}
+			}, 
+			{
+				"request": {
+					"path": [
+						{
+							"matcher": "exact",
+							"value": "/Request.QueryParam_with_each"
+						}
+					]
+				},
+				"response": {
+					"status": 200,
+					"body": "{{#each Request.QueryParam}}{{@index}}:{{@key}}:{{this}} {{/each}}",
+					"encodedBody": false,
+					"templated": true
+				}
+			},
+			{
+				"request": {
+					"path": [
+						{
+							"matcher": "exact",
+							"value": "/Request.Host"
+						}
+					]
+				},
+				"response": {
+					"status": 200,
+					"body": "{{ Request.Host }}",
+					"encodedBody": false,
+					"templated": true
+				}
+			},
+			{
+				"request": {
+					"path": [
+						{
+							"matcher": "exact",
+							"value": "/SetStatusCode"
+						}
+					]
+				},
+				"response": {
+					"status": 200,
+					"body": "{{ setStatusCode 202 }}",
+					"encodedBody": false,
+					"templated": true
+				}
+			},
+			{
+				"request": {
+					"path": [
+						{
+							"matcher": "exact",
+							"value": "/global"
+						}
+					]
+				},
+				"response": {
+					"status": 200,
+					"body": "{\"{{ Literals.fieldName }}\":\"{{ Vars.getCityFromJsonBody }}\"}",
+					"encodedBody": false,
+					"templated": true
+				}
 			}
 		],
 		"globalActions": {
 			"delays": []
-		}
+		}, 
+		"literals": [
+			{
+				"name": "fieldName",
+				"value": "destination"
+		 	}
+		],
+		"variables": [
+			{
+				"name": "getCityFromJsonBody",
+				"function": "requestBody",
+				"arguments": ["jsonpath", "$.city"]
+		 	}, 
+			{
+				"name": "splitRequestPath",
+				"function": "split",
+				"arguments": ["Request.Path.[1]", ","]
+		 	}
+		]
 	},
 	"meta": {
-		"schemaVersion": "v5"
+		"schemaVersion": "v5.2"
 	}
 }`

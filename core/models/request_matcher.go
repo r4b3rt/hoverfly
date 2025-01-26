@@ -1,15 +1,17 @@
 package models
 
 import (
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	"encoding/json"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/core/matching/matchers"
 	"github.com/SpectoLabs/hoverfly/core/util"
-	"net/url"
 )
 
 type RequestFieldMatchers struct {
 	Matcher string
 	Value   interface{}
+	Config  map[string]interface{}
+	DoMatch *RequestFieldMatchers
 }
 
 func NewRequestFieldMatchersFromView(matchers []v2.MatcherViewV5) []RequestFieldMatchers {
@@ -18,12 +20,56 @@ func NewRequestFieldMatchersFromView(matchers []v2.MatcherViewV5) []RequestField
 	}
 	convertedMatchers := []RequestFieldMatchers{}
 	for _, matcher := range matchers {
+		doMatch := getDoMatchRequestFromMatcherView(matcher.DoMatch)
+		value := getValueFromMatcherView(&matcher)
 		convertedMatchers = append(convertedMatchers, RequestFieldMatchers{
 			Matcher: matcher.Matcher,
-			Value:   matcher.Value,
+			Value:   value,
+			Config:  matcher.Config,
+			DoMatch: doMatch,
 		})
 	}
 	return convertedMatchers
+}
+
+func getValueFromMatcherView(matcher *v2.MatcherViewV5) interface{} {
+
+	if matcher.Matcher == "form" {
+		formFieldsMap, ok := matcher.Value.(map[string]interface{})
+		if !ok {
+			//return default value incase of any issue
+			return matcher.Value
+		}
+		returnValue := make(map[string][]RequestFieldMatchers)
+		for formField, formMatchers := range formFieldsMap {
+			marshalledFormMatcherValue, _ := json.Marshal(formMatchers)
+			var matchers []RequestFieldMatchers
+			err := json.Unmarshal(marshalledFormMatcherValue, &matchers)
+			if err != nil {
+				//return default value incase of any issue
+				return matcher.Value
+			}
+			returnValue[formField] = matchers
+		}
+		return returnValue
+	} else {
+		return matcher.Value
+	}
+}
+
+func getDoMatchRequestFromMatcherView(matcher *v2.MatcherViewV5) *RequestFieldMatchers {
+
+	if matcher == nil {
+		return nil
+	}
+	matcherValue := *matcher
+	return &RequestFieldMatchers{
+		Matcher: matcherValue.Matcher,
+		Value:   matcherValue.Value,
+		Config:  matcherValue.Config,
+		DoMatch: getDoMatchRequestFromMatcherView(matcherValue.DoMatch),
+	}
+
 }
 
 func NewRequestFieldMatchersFromMapView(mapMatchers map[string][]v2.MatcherViewV5) map[string][]RequestFieldMatchers {
@@ -53,36 +99,67 @@ func NewQueryRequestFieldMatchersFromMapView(mapMatchers *v2.QueryMatcherViewV5)
 }
 
 func (this RequestFieldMatchers) BuildView() v2.MatcherViewV5 {
+	doMatch := getViewFromRequestFieldMatcher(this.DoMatch)
+	value := getValueFromRequestFieldMatcher(&this)
 	return v2.MatcherViewV5{
 		Matcher: this.Matcher,
-		Value:   this.Value,
+		Value:   value,
+		Config:  this.Config,
+		DoMatch: doMatch,
+	}
+}
+
+func getValueFromRequestFieldMatcher(matcher *RequestFieldMatchers) interface{} {
+
+	if matcher.Matcher == "form" {
+		formFieldMatchers := matcher.Value.(map[string][]RequestFieldMatchers)
+		returnValue := make(map[string][]v2.MatcherViewV5)
+		for formField, matchers := range formFieldMatchers {
+			var matchersView []v2.MatcherViewV5
+			for _, matcher := range matchers {
+				matchersView = append(matchersView, matcher.BuildView())
+			}
+			returnValue[formField] = matchersView
+		}
+		return returnValue
+	} else {
+		return matcher.Value
+	}
+}
+
+func getViewFromRequestFieldMatcher(matcher *RequestFieldMatchers) *v2.MatcherViewV5 {
+
+	if matcher == nil {
+		return nil
+	}
+	matcherValue := *matcher
+	return &v2.MatcherViewV5{
+		Matcher: matcherValue.Matcher,
+		Value:   matcherValue.Value,
+		Config:  matcherValue.Config,
+		DoMatch: getViewFromRequestFieldMatcher(matcherValue.DoMatch),
 	}
 }
 
 type RequestMatcherResponsePair struct {
+	Labels         []string
 	RequestMatcher RequestMatcher
 	Response       ResponseDetails
 }
 
 func NewRequestMatcherResponsePairFromView(view *v2.RequestMatcherResponsePairViewV5) *RequestMatcherResponsePair {
-	for i, matcher := range view.RequestMatcher.DeprecatedQuery {
-		if matcher.Matcher == matchers.Exact {
-			sortedQuery := util.SortQueryString(matcher.Value.(string))
-			view.RequestMatcher.DeprecatedQuery[i].Value = sortedQuery
-		}
-	}
 
 	return &RequestMatcherResponsePair{
+		Labels: view.Labels,
 		RequestMatcher: RequestMatcher{
-			Path:            NewRequestFieldMatchersFromView(view.RequestMatcher.Path),
-			Method:          NewRequestFieldMatchersFromView(view.RequestMatcher.Method),
-			Destination:     NewRequestFieldMatchersFromView(view.RequestMatcher.Destination),
-			Scheme:          NewRequestFieldMatchersFromView(view.RequestMatcher.Scheme),
-			DeprecatedQuery: NewRequestFieldMatchersFromView(view.RequestMatcher.DeprecatedQuery),
-			Body:            NewRequestFieldMatchersFromView(view.RequestMatcher.Body),
-			Headers:         NewRequestFieldMatchersFromMapView(view.RequestMatcher.Headers),
-			Query:           NewQueryRequestFieldMatchersFromMapView(view.RequestMatcher.Query),
-			RequiresState:   view.RequestMatcher.RequiresState,
+			Path:          NewRequestFieldMatchersFromView(view.RequestMatcher.Path),
+			Method:        NewRequestFieldMatchersFromView(view.RequestMatcher.Method),
+			Destination:   NewRequestFieldMatchersFromView(view.RequestMatcher.Destination),
+			Scheme:        NewRequestFieldMatchersFromView(view.RequestMatcher.Scheme),
+			Body:          NewRequestFieldMatchersFromView(view.RequestMatcher.Body),
+			Headers:       NewRequestFieldMatchersFromMapView(view.RequestMatcher.Headers),
+			Query:         NewQueryRequestFieldMatchersFromMapView(view.RequestMatcher.Query),
+			RequiresState: view.RequestMatcher.RequiresState,
 		},
 		Response: NewResponseDetailsFromResponse(view.Response),
 	}
@@ -90,7 +167,7 @@ func NewRequestMatcherResponsePairFromView(view *v2.RequestMatcherResponsePairVi
 
 func (this *RequestMatcherResponsePair) BuildView() v2.RequestMatcherResponsePairViewV5 {
 
-	var path, method, destination, scheme, query, body []v2.MatcherViewV5
+	var path, method, destination, scheme, body []v2.MatcherViewV5
 
 	if this.RequestMatcher.Path != nil && len(this.RequestMatcher.Path) != 0 {
 		views := []v2.MatcherViewV5{}
@@ -132,14 +209,6 @@ func (this *RequestMatcherResponsePair) BuildView() v2.RequestMatcherResponsePai
 		body = views
 	}
 
-	if this.RequestMatcher.DeprecatedQuery != nil && len(this.RequestMatcher.DeprecatedQuery) != 0 {
-		views := []v2.MatcherViewV5{}
-		for _, matcher := range this.RequestMatcher.DeprecatedQuery {
-			views = append(views, matcher.BuildView())
-		}
-		query = views
-	}
-
 	headersWithMatchers := map[string][]v2.MatcherViewV5{}
 	for key, matchers := range this.RequestMatcher.Headers {
 		views := []v2.MatcherViewV5{}
@@ -162,37 +231,40 @@ func (this *RequestMatcherResponsePair) BuildView() v2.RequestMatcherResponsePai
 	}
 
 	return v2.RequestMatcherResponsePairViewV5{
+		Labels: this.Labels,
 		RequestMatcher: v2.RequestMatcherViewV5{
-			Path:            path,
-			Method:          method,
-			Destination:     destination,
-			Scheme:          scheme,
-			DeprecatedQuery: query,
-			Body:            body,
-			Headers:         headersWithMatchers,
-			Query:           queriesWithMatchers,
-			RequiresState:   this.RequestMatcher.RequiresState,
+			Path:          path,
+			Method:        method,
+			Destination:   destination,
+			Scheme:        scheme,
+			Body:          body,
+			Headers:       headersWithMatchers,
+			Query:         queriesWithMatchers,
+			RequiresState: this.RequestMatcher.RequiresState,
 		},
 		Response: this.Response.ConvertToResponseDetailsViewV5(),
 	}
 }
 
 type RequestMatcher struct {
-	Path            []RequestFieldMatchers
-	Method          []RequestFieldMatchers
-	Destination     []RequestFieldMatchers
-	Scheme          []RequestFieldMatchers
-	DeprecatedQuery []RequestFieldMatchers
-	Body            []RequestFieldMatchers
-	Headers         map[string][]RequestFieldMatchers
-	Query           *QueryRequestFieldMatchers
-	RequiresState   map[string]string
+	Path          []RequestFieldMatchers
+	Method        []RequestFieldMatchers
+	Destination   []RequestFieldMatchers
+	Scheme        []RequestFieldMatchers
+	Body          []RequestFieldMatchers
+	Headers       map[string][]RequestFieldMatchers
+	Query         *QueryRequestFieldMatchers
+	RequiresState map[string]string
 }
 
 type QueryRequestFieldMatchers map[string][]RequestFieldMatchers
 
 func (q *QueryRequestFieldMatchers) Add(k string, v []RequestFieldMatchers) {
 	(*q)[k] = v
+}
+
+func (q *QueryRequestFieldMatchers) Get(k string) []RequestFieldMatchers {
+	return (*q)[k]
 }
 
 func (this RequestMatcher) IncludesHeaderMatching() bool {
@@ -208,7 +280,6 @@ func (this RequestMatcher) ToEagerlyCacheable() *RequestDetails {
 		this.Destination == nil || len(this.Destination) != 1 || this.Destination[0].Matcher != matchers.Exact ||
 		this.Method == nil || len(this.Method) != 1 || this.Method[0].Matcher != matchers.Exact ||
 		this.Path == nil || len(this.Path) != 1 || this.Path[0].Matcher != matchers.Exact ||
-		this.DeprecatedQuery != nil && len(this.DeprecatedQuery) == 1 && this.DeprecatedQuery[0].Matcher != matchers.Exact ||
 		this.Scheme == nil || len(this.Scheme) != 1 || this.Scheme[0].Matcher != matchers.Exact {
 		return nil
 	}
@@ -225,14 +296,23 @@ func (this RequestMatcher) ToEagerlyCacheable() *RequestDetails {
 	if this.Query != nil && len(*this.Query) > 0 {
 		for key, valueMatchers := range *this.Query {
 			for _, valueMatcher := range valueMatchers {
-				if valueMatcher.Matcher != matchers.Exact {
+				if valueMatcher.Matcher != matchers.Exact && !(valueMatcher.Matcher == matchers.Array && (valueMatcher.Config == nil || len(valueMatcher.Config) == 0)) {
 					return nil
 				}
-				query[key] = []string{valueMatcher.Value.(string)}
+				if valueMatcher.Matcher == matchers.Array {
+					if value, ok := util.GetStringArray(valueMatcher.Value); ok {
+						query[key] = value
+					} else {
+						//ll hardly the case
+						query[key] = []string{}
+					}
+
+				} else {
+					query[key] = []string{valueMatcher.Value.(string)}
+				}
+
 			}
 		}
-	} else if this.DeprecatedQuery != nil && len(this.DeprecatedQuery) == 1 {
-		query, _ = url.ParseQuery(this.DeprecatedQuery[0].Value.(string))
 	}
 
 	return &RequestDetails{

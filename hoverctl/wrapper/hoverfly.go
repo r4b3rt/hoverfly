@@ -13,26 +13,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SpectoLabs/hoverfly/core/handlers/v2"
+	v2 "github.com/SpectoLabs/hoverfly/core/handlers/v2"
 	"github.com/SpectoLabs/hoverfly/hoverctl/configuration"
 	"github.com/kardianos/osext"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	v2ApiSimulation  = "/api/v2/simulation"
-	v2ApiMode        = "/api/v2/hoverfly/mode"
-	v2ApiDestination = "/api/v2/hoverfly/destination"
-	v2ApiState       = "/api/v2/state"
-	v2ApiMiddleware  = "/api/v2/hoverfly/middleware"
-	v2ApiPac         = "/api/v2/hoverfly/pac"
-	v2ApiCache       = "/api/v2/cache"
-	v2ApiLogs        = "/api/v2/logs"
-	v2ApiHoverfly    = "/api/v2/hoverfly"
-	v2ApiDiff        = "/api/v2/diff"
+	v2ApiSimulation      = "/api/v2/simulation"
+	v2ApiMode            = "/api/v2/hoverfly/mode"
+	v2ApiDestination     = "/api/v2/hoverfly/destination"
+	v2ApiState           = "/api/v2/state"
+	v2ApiMiddleware      = "/api/v2/hoverfly/middleware"
+	v2ApiPostServeAction = "/api/v2/hoverfly/post-serve-action"
+	v2ApiTemplateDataSourceAction = "/api/v2/hoverfly/templating-data-source/csv"
+	v2ApiPac             = "/api/v2/hoverfly/pac"
+	v2ApiCache           = "/api/v2/cache"
+	v2ApiLogs            = "/api/v2/logs"
+	v2ApiHoverfly        = "/api/v2/hoverfly"
+	v2ApiDiff            = "/api/v2/diff"
 
 	v2ApiShutdown = "/api/v2/shutdown"
 	v2ApiHealth   = "/api/health"
+
+	v2JournalIndex = "/api/v2/journal/index"
 )
 
 type APIStateSchema struct {
@@ -188,7 +192,7 @@ func Start(target *configuration.Target) error {
 			if err != nil {
 				log.Debug(err)
 			}
-			return errors.New(fmt.Sprintf("Timed out waiting for Hoverfly to become healthy, returns status: %v", statusCode))
+			return fmt.Errorf("Timed out waiting for Hoverfly to become healthy, returns status: %v", statusCode)
 		case <-tick:
 			resp, err := http.Get(fmt.Sprintf("http://localhost:%v/api/health", target.AdminPort))
 			if err == nil {
